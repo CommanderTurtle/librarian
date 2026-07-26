@@ -136,6 +136,6 @@ Query traces stay local under `<bundle>/.traces/`. Librarian adds no telemetry.
 
 ## License
 
-Apache-2.0. Librarian is derived from Understory by Anirban Kar. See
+AGPLv3.0 - Librarian is a modified and relicensed derivitive from Understory by Anirban Kar, designed as a native Hermes MCP. See
 [`NOTICE`](NOTICE) for attribution and [`LICENSE`](LICENSE) for the complete
 license.
