@@ -1,31 +1,28 @@
 import express, { type Router } from "express";
-import { convertToModelMessages, type UIMessage } from "ai";
-import { streamChat, type KnowledgeBase } from "@understory/core";
+import { runChat, type ChatMessage, type KnowledgeBase } from "@understory/core";
 
 interface ChatBody {
-  messages: UIMessage[];
+  messages: ChatMessage[];
   model?: string;
 }
 
-/**
- * Streaming chat endpoint for the web UI (`useChat`). Full agent toolset —
- * the chat exists to exercise the same agent the MCP server uses.
- */
+/** Web chat endpoint backed by the same Hermes librarian path as MCP calls. */
 export function chatRouter(kb: KnowledgeBase): Router {
   const router = express.Router();
 
   router.post("/chat", async (req, res) => {
     const { messages, model } = req.body as ChatBody;
-    const { result } = await streamChat(kb, convertToModelMessages(messages), { model });
-    const response = result.toUIMessageStreamResponse();
-    res.status(response.status);
-    response.headers.forEach((value, key) => res.setHeader(key, value));
-    if (response.body) {
-      for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
-        res.write(chunk);
-      }
+    if (!Array.isArray(messages) || messages.length === 0) {
+      res.status(400).json({ error: "messages must contain at least one turn" });
+      return;
     }
-    res.end();
+    try {
+      res.json(await runChat(kb, messages, { model }));
+    } catch (error) {
+      res.status(502).json({
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   });
 
   return router;

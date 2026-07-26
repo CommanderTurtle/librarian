@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import cors from "cors";
-import { KnowledgeBase, resolveFallbackConfig, resolveModelConfig } from "@understory/core";
+import { KnowledgeBase } from "@understory/core";
 import { mcpRouter } from "./mcp/http.js";
 import { browseRouter } from "./api/browse.js";
 import { chatRouter } from "./api/chat.js";
@@ -24,23 +24,9 @@ startDreamer(kb);
 
 const app = express();
 
-// Validate LLM config at startup — fail fast with a clear error.
-try {
-  const primaryConfig = resolveModelConfig();
-  console.log(
-    `[understory] model: ${primaryConfig.format}:${primaryConfig.model || "auto"} @ ${primaryConfig.baseURL}`
-  );
-  const fallbackConfig = resolveFallbackConfig();
-  if (fallbackConfig) {
-    console.log(
-      `[understory] fallback: ${fallbackConfig.format}:${fallbackConfig.model || "auto"} @ ${fallbackConfig.baseURL}`
-    );
-  }
-} catch (err) {
-  console.error(`[understory] LLM configuration error: ${(err as Error).message}`);
-  console.error("[understory] Set LLM_API_BASE_URL + LLM_API_KEY, or configure legacy env vars.");
-  process.exit(1);
-}
+console.log(
+  `[librarian] Hermes profile: ${process.env.HERMES_PROFILE_HOME || "~/.hermes/profiles/librarian"}`
+);
 
 // Reflect the request origin; expose Mcp-Session-Id so browser MCP clients can
 // read it back off the initialize response.
@@ -66,9 +52,9 @@ app.use(express.json({ limit: "4mb" }));
 const authToken = process.env.AUTH_TOKEN;
 if (authToken) {
   app.use(["/mcp", "/api"], bearerAuth(authToken));
-  console.log("[understory] auth: bearer token required for /mcp and /api");
+  console.log("[librarian] auth: bearer token required for /mcp and /api");
 } else {
-  console.log("[understory] auth: disabled (set AUTH_TOKEN to protect /mcp and /api)");
+  console.log("[librarian] auth: disabled (set AUTH_TOKEN to protect /mcp and /api)");
 }
 
 app.use("/mcp", mcpRouter(kb));
@@ -86,5 +72,5 @@ if (existsSync(webDist)) {
 
 const port = Number(process.env.PORT ?? 3800);
 app.listen(port, "0.0.0.0", () => {
-  console.log(`understory serving bundle ${bundleRoot} on :${port} (web + /api + /mcp)`);
+  console.log(`librarian serving bundle ${bundleRoot} on :${port} (web + /api + /mcp)`);
 });

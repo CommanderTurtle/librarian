@@ -3,5 +3,7 @@ export * from "./agent/index.js";
 export * from "./agent/query-cache.js";
 export * from "./agent/hot-memory.js";
 export * from "./agent/dream.js";
-export * from "./providers/index.js";
+export * from "./gateway/index.js";
+export * from "./hermes/gateway.js";
+export * from "./omp/gateway.js";
 export * from "./util/duration.js";

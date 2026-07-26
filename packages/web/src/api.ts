@@ -73,11 +73,11 @@ export interface QueryTrace extends TraceSummary {
 
 export interface AppConfig {
   model: string;
-  format: "openai" | "anthropic" | string;
+  format: "hermes" | string;
   fallbackConfigured: boolean;
 }
 
-const TOKEN_KEY = "understory-token";
+const TOKEN_KEY = "librarian-token";
 
 export function getAuthToken(): string {
   return localStorage.getItem(TOKEN_KEY) ?? "";

@@ -129,7 +129,7 @@ export class KnowledgeBase {
         await this.git.commit(`${action.toLowerCase()}: ${logSummary || conceptPath}`);
       } catch (err) {
         // Autocommit is best-effort; the KB write itself already succeeded.
-        console.error(`[understory] git autocommit failed: ${(err as Error).message}`);
+        console.error(`[librarian] git autocommit failed: ${(err as Error).message}`);
       }
     }
   }

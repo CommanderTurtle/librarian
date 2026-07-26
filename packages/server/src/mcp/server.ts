@@ -18,17 +18,17 @@ export async function buildMcpServer(kb: KnowledgeBase): Promise<McpServer> {
   // Seed generation must never prevent the server from starting — a missing
   // or empty bundle root degrades to a minimal seed, not a crash.
   const seed = await buildSeedMemory(kb).catch((err: Error) => {
-    console.error(`[understory] seed generation failed: ${err.message}`);
+    console.error(`[librarian] seed generation failed: ${err.message}`);
     return "(memory overview unavailable — the bundle may be empty or unreadable; memory_status can diagnose)";
   });
 
   const queryDescription = (s: string) =>
-    `Ask a natural-language question. An internal agent searches the OKF knowledge base, ` +
+    `Ask a natural-language question. A fresh Hermes librarian session searches the OKF knowledge base, ` +
     `reads relevant concepts, and answers with cited bundle paths.\n\n` +
     `CURRENT MEMORY OVERVIEW:\n${s}`;
 
   const server = new McpServer(
-    { name: "understory", version: "0.1.0" },
+    { name: "librarian", version: "0.1.0" },
     { instructions: seedInstructions(seed) }
   );
 
@@ -60,7 +60,7 @@ export async function buildMcpServer(kb: KnowledgeBase): Promise<McpServer> {
       const fresh = await buildSeedMemory(kb);
       queryTool.update({ description: queryDescription(fresh) });
     } catch (err) {
-      console.error(`[understory] seed refresh failed: ${(err as Error).message}`);
+      console.error(`[librarian] seed refresh failed: ${(err as Error).message}`);
     }
   };
 
@@ -97,7 +97,7 @@ export async function buildMcpServer(kb: KnowledgeBase): Promise<McpServer> {
     {
       title: "Add knowledge",
       description:
-        "Provide free-form knowledge (facts, docs, decisions, runbooks). An internal agent searches for overlap, then creates or extends OKF concepts; indexes and the update log are maintained automatically.",
+        "Provide free-form knowledge (facts, docs, decisions, runbooks). A fresh Hermes librarian session searches for overlap, then creates or extends OKF concepts; indexes and the update log are maintained automatically.",
       inputSchema: {
         content: z.string().describe("The knowledge to record, in any prose form"),
         suggested_path: z
@@ -131,7 +131,7 @@ export async function buildMcpServer(kb: KnowledgeBase): Promise<McpServer> {
     {
       title: "Update knowledge",
       description:
-        "Instruct a change to existing knowledge (correct a fact, deprecate a concept, restructure). An internal agent locates the concepts and applies targeted edits.",
+        "Instruct a change to existing knowledge (correct a fact, deprecate a concept, restructure). A fresh Hermes librarian session locates the concepts and applies targeted edits.",
       inputSchema: {
         instruction: z.string().describe("What to change, in natural language"),
       },
@@ -186,7 +186,7 @@ export async function buildMcpServer(kb: KnowledgeBase): Promise<McpServer> {
     {
       title: "Maintain / repair memory",
       description:
-        "Health-check and repair the knowledge graph: an internal agent wires orphaned concepts (nothing links to them) into related concepts and fixes broken links. Run periodically to counter drift. No-op when the graph is already healthy.",
+        "Health-check and repair the knowledge graph: a fresh Hermes librarian session wires orphaned concepts into related concepts and fixes broken links. Run periodically to counter drift. No-op when the graph is already healthy.",
       inputSchema: {},
     },
     async () => {

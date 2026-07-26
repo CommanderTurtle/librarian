@@ -1,210 +1,98 @@
-# understory 🌱
+# Librarian
 
-**Memory that grows.**
+Librarian is an [Understory](https://github.com/thecodacus/understory) fork that
+keeps its deterministic [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
+bundle and high-level MCP contract, but delegates every agentic operation to a
+fresh [Hermes Agent](https://hermes-agent.nousresearch.com/docs/developer-guide/programmatic-integration)
+session through the native TUI-gateway JSON-RPC protocol.
 
-The layer beneath your agents: a self-wiring, plain-markdown memory. Every fact your agents learn is filed as a markdown concept, cross-linked into a living knowledge graph, and kept healthy by the agent itself — searchable, diffable, and entirely yours. Runs great on local models.
+There is no embedded model provider, API client, or second agent loop.
 
-Bundles follow the [Open Knowledge Format (OKF) v0.1 spec](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) — plain markdown files with YAML frontmatter, readable by humans, diffable in git, portable across tools.
+## What stays deterministic
 
-**Three ways in, one agent:**
+Every read and mutation crosses the private `librarian-okf` MCP boundary.
+Understory's `KnowledgeBase` remains the only write path, so it still enforces:
 
-- **MCP server** — `memory_query` / `memory_add` / `memory_update` / `memory_status` / `memory_maintain` tools over stdio or streamable HTTP. Each call drives an internal LLM agent with the OKF spec in its system prompt.
-- **Web UI** — browse the bundle (tree, concept viewer, update log, conformance badge), see the memory as an Obsidian-style **force-directed graph** (drag/pan/zoom, colored by type, sized by connections, orphans ringed red, click to open), and chat with the same agent to test it. Tool calls render inline so you can watch it work.
-- **Query-path replay** — every agent run (query/mutation/chat) records its traversal (searches → reads → writes) as a compact notation, persisted under `<bundle>/.traces/`. The graph view lists recent runs; selecting one replays the path as numbered directed hops over the graph — visited concepts ringed, search hits dotted, everything else faded.
-- **CLI** — `pnpm agent:query "..."` / `pnpm agent:mutate "..."` smoke entries.
+- bundle-relative path sandboxing;
+- required OKF frontmatter;
+- generated `index.md` files;
+- newest-first `log.md` entries;
+- serialized mutations;
+- optional Git autocommits.
 
-**Design rule: conformance is enforced in code, not prompts.** The deterministic bundle layer validates frontmatter (`type` required), regenerates `index.md` files, appends `log.md` entries (newest-first, spec §7), and sandboxes all paths to the bundle root. The LLM decides *what* to change; the code guarantees the result is a conformant bundle.
+The public MCP retains Understory's original tools:
 
-## Quick start (Docker)
+- `memory_query`
+- `memory_add`
+- `memory_update`
+- `memory_status`
+- `memory_maintain`
 
-No clone needed — the image is public. Save this as `docker-compose.yml`:
+`memory_status` remains model-free. Every other call creates and persists a
+unique Hermes session, streams its JSON-RPC events internally, and closes the
+process after the final answer.
 
-```yaml
-services:
-  understory:
-    image: ghcr.io/thecodacus/understory:latest
-    ports:
-      - "3800:3800"
-    volumes:
-      # Your memory lives here as plain markdown — a named volume, or point
-      # a bind mount (e.g. ./my-memory:/bundle) at any OKF bundle.
-      - understory-memory:/bundle
-    environment:
-      BUNDLE_ROOT: /bundle
-      LLM_API_BASE_URL: ${LLM_API_BASE_URL}
-      LLM_API_KEY: ${LLM_API_KEY}
-      LLM_API_FORMAT: openai
-      LLM_MODEL: ${LLM_MODEL:-}
-      # Optional fallback
-      LLM_FALLBACK_API_BASE_URL: ${LLM_FALLBACK_API_BASE_URL:-}
-      LLM_FALLBACK_API_KEY: ${LLM_FALLBACK_API_KEY:-}
-      LLM_FALLBACK_API_FORMAT: ${LLM_FALLBACK_API_FORMAT:-openai}
-      LLM_FALLBACK_MODEL: ${LLM_FALLBACK_MODEL:-}
-    restart: unless-stopped
+## Setup
 
-volumes:
-  understory-memory:
-```
+Requirements:
+
+- a native, configured `hermes` installation;
+- Bun, normally supplied by
+  [Sandwich](https://github.com/CommanderTurtle/sandwich);
+- a reachable model in the selected Hermes profile.
 
 ```bash
-docker compose up -d
+git clone https://github.com/CommanderTurtle/librarian
+cd librarian
+bun run setup
 ```
 
-### Choosing a provider
+Setup asks for the OKF bundle path, model, and provider. It then:
 
-The generic provider system supports any OpenAI-compatible or Anthropic-compatible API.
-Set `LLM_API_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL` and leave `LLM_PROVIDER` unset.
+1. installs and builds the Bun workspace;
+2. clones the current Hermes profile into an isolated `librarian` profile;
+3. registers private `librarian-okf` operations only in that child profile;
+4. registers the public `librarian` MCP in the default profile;
+5. writes the resolved native paths to `.env`.
 
-**DeepSeek:**
-```bash
-LLM_API_BASE_URL=https://api.deepseek.com/v1 LLM_API_KEY=sk-... LLM_MODEL=deepseek-chat
-```
+The profile split prevents recursive Librarian calls while preserving the
+current Hermes provider, tools, skills, and selected MCP servers for delegated
+research.
 
-**OpenAI:**
-```bash
-LLM_API_BASE_URL=https://api.openai.com/v1 LLM_API_KEY=sk-... LLM_MODEL=gpt-4o
-```
+Rerunning `bun run setup` refreshes both MCP registrations without recreating
+the profile.
 
-**Anthropic (Claude):**
-```bash
-LLM_API_BASE_URL=https://api.anthropic.com/v1 LLM_API_KEY=sk-ant-... LLM_API_FORMAT=anthropic LLM_MODEL=claude-sonnet-5
-```
+## Optional web browser
 
-**Groq:**
-```bash
-LLM_API_BASE_URL=https://api.groq.com/openai/v1 LLM_API_KEY=gsk_... LLM_MODEL=llama-3.3-70b-versatile
-```
-
-**Local llama.cpp:**
-```bash
-LLM_API_BASE_URL=http://localhost:8080/v1 LLM_MODEL=
-```
-
-**Local llama.cpp with DeepSeek fallback:**
-```bash
-LLM_API_BASE_URL=http://localhost:8080/v1 LLM_MODEL= \
-LLM_FALLBACK_API_BASE_URL=https://api.deepseek.com/v1 LLM_FALLBACK_API_KEY=sk-... LLM_FALLBACK_MODEL=deepseek-chat
-```
-
-The old `LLM_PROVIDER` + per-provider key env vars still work (backward-compatible) but are deprecated.
-
-Then:
-
-- **Web UI** → http://localhost:3800 — browse the memory, watch the graph, chat with the agent
-- **MCP endpoint** → `http://localhost:3800/mcp` (streamable HTTP) — register it in any MCP client:
-  ```bash
-  claude mcp add --transport http ustory http://localhost:3800/mcp
-  ```
-- Your agent now has `memory_query` / `memory_add` / `memory_update` / `memory_status` / `memory_maintain`, and gets a seed overview of the memory at every session start.
-
-Teach it something (`memory_add`: "We deploy on Fridays, never Mondays"), then open the graph and watch the concept wire itself in. Deploying with Portainer? Use [docker-compose.portainer.yml](docker-compose.portainer.yml) as a repository stack.
-
-## Stack
-
-pnpm monorepo:
-
-| Package | What |
-|---|---|
-| `packages/core` | OKF bundle layer (zero LLM) + agent (Vercel AI SDK tool loop: search/read/list/write/patch/delete) + provider registry |
-| `packages/server` | Express: MCP streamable-HTTP at `/mcp`, stdio bin, REST browse API at `/api/*`, streaming chat at `/api/chat`, serves the web build |
-| `packages/web` | Vite + React + TS + Tailwind: bundle browser + agent chat (`useChat`) |
-
-Providers are configured through `LLM_API_BASE_URL`, `LLM_API_KEY`, `LLM_API_FORMAT` (`openai` or `anthropic`), and `LLM_MODEL`. Any OpenAI-compatible endpoint (DeepSeek, OpenAI, Groq, OpenRouter, llama.cpp, etc.) works with `LLM_API_FORMAT=openai`; Anthropic-compatible endpoints use `LLM_API_FORMAT=anthropic`. Optional fallback uses the matching `LLM_FALLBACK_*` variables.
-
-### llama.cpp
+The MCP servers are stdio processes and need no persistent service. To browse
+the OKF tree, graph, traces, and chat through the same Hermes path:
 
 ```bash
-# on the inference box — --jinja enables OpenAI-style tool calling
-llama-server -m model.gguf --jinja --host 0.0.0.0 --port 8080
-
-# here — no model id needed, it's discovered for llama-server-like local endpoints
-LLM_API_BASE_URL=http://inference-box:8080/v1 LLM_API_FORMAT=openai LLM_MODEL= \
-BUNDLE_ROOT=./sample-bundle node packages/server/dist/index.js
+./start.sh
 ```
 
-Works behind llama-swap too: discovery prefers the currently **loaded** model so a query doesn't trigger a multi-minute model swap. Pin a specific model with `LLM_MODEL=`.
+The default address is `http://localhost:3800`. Set `AUTH_TOKEN` in `.env`
+before exposing it beyond a trusted host or LAN.
 
-## From source
+## Update
 
 ```bash
-pnpm install
-pnpm build
-cp .env.example .env   # add your API key
-
-BUNDLE_ROOT=./sample-bundle \
-LLM_API_BASE_URL=https://api.deepseek.com/v1 \
-LLM_API_KEY=sk-... \
-LLM_API_FORMAT=openai \
-LLM_MODEL=deepseek-chat \
-node packages/server/dist/index.js
-# → http://localhost:3800  (web UI + /api + /mcp)
+./update.sh
 ```
 
-Or build the container yourself: `docker compose up --build` (the repo's [docker-compose.yml](docker-compose.yml) builds from source and mounts `./sample-bundle`).
+The update path rebases with an autostash, performs a frozen Bun install, and
+rebuilds all packages. Rerun `bun run setup` only when paths, profile, model, or
+MCP registrations change.
 
-Dev mode (server on :3800, Vite HMR on :5180 with proxy):
+## Architecture
 
-```bash
-BUNDLE_ROOT=./sample-bundle pnpm --filter @understory/server dev
-pnpm --filter @understory/web dev
+```text
+Hermes default profile
+  └─ librarian MCP (memory_*)
+       └─ fresh tui_gateway JSON-RPC process per call
+            └─ isolated Hermes librarian profile
+                 └─ librarian-okf MCP (deterministic OKF operations)
+                      └─ plain Markdown bundle
 ```
 
-## MCP registration (Claude Code / Desktop)
-
-```bash
-claude mcp add ustory \
-  -e BUNDLE_ROOT=/path/to/your/bundle \
-  -e LLM_API_BASE_URL=https://api.deepseek.com/v1 \
-  -e LLM_API_KEY=sk-... \
-  -e LLM_API_FORMAT=openai \
-  -e LLM_MODEL=deepseek-chat \
-  -- node /path/to/understory/packages/server/dist/mcp/stdio.js
-```
-
-Or point an HTTP MCP client at `http://host:3800/mcp`.
-
-### Auth
-
-By default the server is open — fine on localhost or a trusted LAN. Before exposing it anywhere else, set `AUTH_TOKEN`:
-
-```bash
-AUTH_TOKEN=$(openssl rand -hex 24)
-```
-
-With it set, `/mcp` and `/api` require `Authorization: Bearer <token>` (the web UI stays reachable and prompts for the token). Register authenticated MCP clients with a header:
-
-```bash
-claude mcp add --transport http ustory http://host:3800/mcp \
-  --header "Authorization: Bearer <token>"
-```
-
-The stdio transport needs no token — it's a local process spawned by the client.
-
-### Seed memory
-
-A client LLM that only sees four bare tool names never gets the instinct to check memory. So at **session start** the server injects a compact overview of what the knowledge base contains (directories, concepts with types + descriptions, recent activity) through both channels that reach the model:
-
-1. the MCP initialize **`instructions`** field (clients like Claude put it in the system prompt), and
-2. the **`memory_query` tool description** — the universal fallback every tool-calling client loads.
-
-The seed regenerates fresh for every new session. After `memory_add` / `memory_update` in a long-lived (stdio) session, the tool description refreshes via `tools/list_changed`, so the session sees its own writes. Out-of-band edits (hand edits, other clients) are picked up on the next session.
-
-### Graph health & maintenance
-
-Memory is a graph, not a pile of notes, and graphs rot: concepts go **orphaned** (nothing links to them) and links go **broken**. Two mechanisms keep it healthy:
-
-- **Write-time linking** — new knowledge either enriches the concept it belongs to (an attribute of an existing entity is patched in, not filed separately) or, when it's a distinct entity, is created *and* back-linked from related concepts. Contradictions are superseded in place, never left standing alongside the old value.
-- **`memory_maintain`** — a deterministic lint (orphans + broken links, surfaced in `memory_status` under `graph`) drives an internal agent to wire orphans into related concepts and fix dangling links. Run it periodically to counter drift; it's a no-op when the graph is already healthy.
-
-This design mirrors the pattern in Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) (index.md + log.md, create-vs-enrich, lint for orphans). Deferred from that pattern until scale warrants: an explicit page-type schema, and hybrid FTS5+embedding search (the naive scan in `search.ts` is fine into the low thousands of concepts).
-
-## Tests
-
-```bash
-pnpm test                                  # core: 18 tests (spec §5/§6/§7/§9, sandbox, search, concurrency)
-pnpm --filter @understory/server exec tsx scripts/mcp-smoke.mts   # MCP stdio round-trip (needs SMOKE_BUNDLE + an API key)
-```
-
-## Environment
-
-See [.env.example](.env.example). `BUNDLE_ROOT` is required; `GIT_AUTOCOMMIT=true` commits every mutation.
+Query traces stay local under `<bundle>/.traces/`. Librarian adds no telemetry.

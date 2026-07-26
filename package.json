@@ -1,17 +1,21 @@
 {
-  "name": "understory",
+  "name": "librarian",
   "version": "0.1.0",
   "private": true,
-  "description": "LLM-managed knowledge base following the OKF spec — MCP server + web UI",
+  "description": "Hermes-delegated OKF librarian — MCP server and knowledge browser",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "test": "pnpm -r test",
-    "build": "pnpm -r build",
-    "dev": "pnpm --parallel -r dev",
-    "agent:query": "pnpm --filter @understory/core agent:query",
-    "agent:mutate": "pnpm --filter @understory/core agent:mutate"
+    "setup": "bun scripts/setup.ts",
+    "test": "bun run --filter '*' test",
+    "build": "bun run --filter '*' build",
+    "dev": "bun run --filter '*' dev",
+    "agent:query": "bun run --filter @understory/core agent:query",
+    "agent:mutate": "bun run --filter @understory/core agent:mutate"
   },
   "engines": {
     "node": ">=20"
   },
-  "packageManager": "pnpm@10.15.0"
+  "packageManager": "bun@1.3.14"
 }

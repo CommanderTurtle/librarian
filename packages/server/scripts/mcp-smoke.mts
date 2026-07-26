@@ -2,7 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const transport = new StdioClientTransport({
-  command: "node",
+  command: "bun",
   args: [new URL("../dist/mcp/stdio.js", import.meta.url).pathname],
   env: {
     ...process.env,
@@ -37,7 +37,7 @@ console.log(
 const status = await client.callTool({ name: "memory_status", arguments: {} });
 console.log("STATUS:", (status.content as { text: string }[])[0].text);
 
-if (process.env.OPENROUTER_API_KEY) {
+if (process.env.HERMES_PROFILE_HOME) {
   const q = await client.callTool({
     name: "memory_query",
     arguments: { question: "What is the billing API rate limit?" },

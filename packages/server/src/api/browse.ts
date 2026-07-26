@@ -2,8 +2,6 @@ import express, { type Router } from "express";
 import {
   BundleError,
   TraceStore,
-  resolveFallbackConfig,
-  resolveModelConfig,
   type KnowledgeBase,
 } from "@understory/core";
 
@@ -79,12 +77,10 @@ export function browseRouter(kb: KnowledgeBase): Router {
   });
 
   router.get("/config", (_req, res) => {
-    const config = resolveModelConfig();
-    const fallback = resolveFallbackConfig();
     res.json({
-      model: config.model,
-      format: config.format,
-      fallbackConfigured: fallback !== null,
+      model: process.env.HERMES_MODEL || "profile default",
+      format: "hermes",
+      fallbackConfigured: false,
     });
   });
 

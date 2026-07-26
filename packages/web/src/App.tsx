@@ -92,7 +92,7 @@ export default function App() {
           }}
           className="w-80 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5"
         >
-          <h1 className="text-sm font-bold tracking-wide text-cyan-300">understory 🌱</h1>
+          <h1 className="text-sm font-bold tracking-wide text-cyan-300">librarian</h1>
           <p className="mt-2 text-sm text-zinc-400">
             This server requires an access token (its <code className="text-zinc-300">AUTH_TOKEN</code>).
           </p>
@@ -121,7 +121,7 @@ export default function App() {
       <aside className="flex w-72 shrink-0 flex-col border-r border-zinc-800">
         <div className="border-b border-zinc-800 p-3">
           <div className="flex items-center gap-2">
-            <h1 className="text-sm font-bold tracking-wide text-cyan-300">understory 🌱</h1>
+            <h1 className="text-sm font-bold tracking-wide text-cyan-300">librarian</h1>
             {report && (
               <span
                 title={`${report.conceptCount} concepts, ${report.issues.length} issues`}

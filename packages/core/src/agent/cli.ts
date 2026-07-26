@@ -1,8 +1,8 @@
 #!/usr/bin/env tsx
 /**
  * Agent smoke CLI.
- *   BUNDLE_ROOT=../sample-bundle pnpm agent:query  "What do we know about billing?"
- *   BUNDLE_ROOT=../sample-bundle pnpm agent:mutate "Add a concept about the users table"
+ *   BUNDLE_ROOT=../sample-bundle bun run agent:query  "What do we know about billing?"
+ *   BUNDLE_ROOT=../sample-bundle bun run agent:mutate "Add a concept about the users table"
  */
 import { KnowledgeBase } from "../okf/index.js";
 import { runQuery, runMutation } from "./agent.js";
