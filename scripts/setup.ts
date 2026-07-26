@@ -163,21 +163,35 @@ function replaceMcp(
     run(hermes!, ["mcp", "remove", name], childEnv, true);
   }
   const envArgs = Object.entries(env).map(([key, value]) => `${key}=${value}`);
-  run(
-    hermes!,
-    [
-      "mcp",
-      "add",
-      name,
-      "--command",
-      command,
-      "--env",
-      ...envArgs,
-      "--args",
-      ...args,
-    ],
-    childEnv
-  );
+  const addArgs = [
+    "mcp",
+    "add",
+    name,
+    "--command",
+    command,
+    "--env",
+    ...envArgs,
+    "--args",
+    ...args,
+  ];
+  const added = spawnSync(hermes!, addArgs, {
+    cwd: repoRoot,
+    env: childEnv,
+    input: "y\n",
+    stdio: ["pipe", "inherit", "inherit"],
+  });
+  if (added.status !== 0) {
+    fail(`hermes ${addArgs.join(" ")} failed with exit code ${added.status}`);
+  }
+  const verified = spawnSync(hermes!, ["mcp", "list"], {
+    env: childEnv,
+    encoding: "utf8",
+  });
+  const registry = `${verified.stdout || ""}\n${verified.stderr || ""}`;
+  const exactName = new RegExp(`(^|\\s)${escapeRegex(name)}(\\s|$)`, "m");
+  if (verified.status !== 0 || !exactName.test(registry)) {
+    fail(`Hermes did not retain the '${name}' MCP registration`);
+  }
 }
 
 function writeEnv(file: string, values: Record<string, string>): void {
@@ -197,6 +211,10 @@ function escapeEnv(value: string): string {
   return /[\s#"'\\]/.test(value)
     ? `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
     : value;
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function run(
