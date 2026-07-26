@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { KnowledgeBase } from "@understory/core";
 import { buildOkfOperationsServer } from "./okf-server.js";

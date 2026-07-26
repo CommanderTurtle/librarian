@@ -7,12 +7,19 @@ import readline from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 
 const repoRoot = path.resolve(import.meta.dir, "..");
+const hermesHome = expandHome(
+  process.env.HERMES_HOME || path.join(os.homedir(), ".hermes")
+);
 const profileName = process.env.LIBRARIAN_PROFILE || "librarian";
-const profileHome = path.join(os.homedir(), ".hermes", "profiles", profileName);
+const profileHome = expandHome(
+  process.env.HERMES_PROFILE_HOME ||
+    path.join(hermesHome, "profiles", profileName)
+);
 const defaultBundle = path.join(repoRoot, "data");
-const hermesPython =
+const hermesPython = expandHome(
   process.env.HERMES_PYTHON ||
-  path.join(os.homedir(), ".hermes", "hermes-agent", "venv", "bin", "python");
+    path.join(hermesHome, "hermes-agent", "venv", "bin", "python")
+);
 const bun = Bun.which("bun");
 const hermes = Bun.which("hermes");
 
@@ -45,7 +52,7 @@ prompt?.close();
 mkdirSync(bundleRoot, { recursive: true });
 
 console.log("\nInstalling and building with Bun...");
-run(bun, ["install"]);
+run(bun, ["install", "--frozen-lockfile"]);
 run(bun, ["run", "build"]);
 
 if (!profileExists(profileName)) {
@@ -64,6 +71,8 @@ if (!profileExists(profileName)) {
 
 const envValues: Record<string, string> = {
   BUNDLE_ROOT: bundleRoot,
+  HERMES_HOME: hermesHome,
+  LIBRARIAN_PROFILE: profileName,
   HERMES_PROFILE_HOME: profileHome,
   HERMES_PYTHON: hermesPython,
   HERMES_MODEL: model,
@@ -211,6 +220,12 @@ function escapeEnv(value: string): string {
   return /[\s#"'\\]/.test(value)
     ? `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
     : value;
+}
+
+function expandHome(value: string): string {
+  if (value === "~") return os.homedir();
+  if (value.startsWith("~/")) return path.join(os.homedir(), value.slice(2));
+  return path.resolve(value);
 }
 
 function escapeRegex(value: string): string {

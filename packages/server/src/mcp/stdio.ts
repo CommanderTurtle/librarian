@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * High-level Librarian MCP over stdio. The setup script registers this with
  * the default Hermes profile and registers the private OKF operations server

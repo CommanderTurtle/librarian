@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env bun
 /**
  * Agent smoke CLI.
  *   BUNDLE_ROOT=../sample-bundle bun run agent:query  "What do we know about billing?"
@@ -12,7 +12,7 @@ const input = rest.join(" ").trim();
 const bundleRoot = process.env.BUNDLE_ROOT;
 
 if (!bundleRoot || !input || !["query", "mutate"].includes(mode)) {
-  console.error('Usage: BUNDLE_ROOT=<dir> tsx cli.ts query|mutate "<text>"');
+  console.error('Usage: BUNDLE_ROOT=<dir> bun cli.ts query|mutate "<text>"');
   process.exit(1);
 }
 

@@ -101,7 +101,7 @@ describe("index regeneration (spec §6)", () => {
   it("regenerates the whole ancestor chain after nested writes", async () => {
     await kb.writeConcept("/a/b/deep.md", { type: "T", title: "Deep" }, "x", "add deep");
     for (const p of ["index.md", "a/index.md", "a/b/index.md"]) {
-      await expect(fs.access(path.join(root, p))).resolves.toBeUndefined();
+      await fs.access(path.join(root, p));
     }
   });
 });

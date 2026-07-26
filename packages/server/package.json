@@ -1,6 +1,7 @@
 {
   "name": "@understory/server",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
@@ -9,10 +10,10 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
-    "mcp:stdio": "tsx src/mcp/stdio.ts",
-    "mcp:okf": "tsx src/mcp/okf-stdio.ts",
+    "dev": "bun --watch src/index.ts",
+    "start": "bun dist/index.js",
+    "mcp:stdio": "bun src/mcp/stdio.ts",
+    "mcp:okf": "bun src/mcp/okf-stdio.ts",
     "test": "bun run typecheck:test && vitest run --passWithNoTests",
     "typecheck:test": "tsc -p tsconfig.test.json"
   },
@@ -27,7 +28,6 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^20.17.0",
-    "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   }
