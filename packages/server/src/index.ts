@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import cors from "cors";
-import { KnowledgeBase } from "@understory/core";
+import { KnowledgeBase, agentBackendLabel } from "@understory/core";
 import { mcpRouter } from "./mcp/http.js";
 import { browseRouter } from "./api/browse.js";
 import { chatRouter } from "./api/chat.js";
@@ -24,9 +24,12 @@ startDreamer(kb);
 
 const app = express();
 
-console.log(
-  `[librarian] Hermes profile: ${process.env.HERMES_PROFILE_HOME || "~/.hermes/profiles/librarian"}`
-);
+const backend = agentBackendLabel();
+const backendProfile =
+  backend === "Hermes"
+    ? process.env.HERMES_PROFILE_HOME || "~/.hermes/profiles/librarian"
+    : process.env.OMP_PROFILE || process.env.LIBRARIAN_PROFILE || "librarian";
+console.log(`[librarian] delegated backend: ${backend} (${backendProfile})`);
 
 // Reflect the request origin; expose Mcp-Session-Id so browser MCP clients can
 // read it back off the initialize response.

@@ -2,8 +2,8 @@
   "name": "librarian",
   "version": "0.1.0",
   "private": true,
-  "description": "Hermes-delegated OKF librarian — MCP server and knowledge browser",
-  "license": "Apache-2.0",
+  "description": "RPC-delegated OKF librarian for Hermes and OMP",
+  "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/CommanderTurtle/librarian.git"
@@ -12,7 +12,7 @@
   "bugs": {
     "url": "https://github.com/CommanderTurtle/librarian/issues"
   },
-  "keywords": ["hermes", "mcp", "okf", "knowledge-base", "bun"],
+  "keywords": ["hermes", "omp", "mcp", "okf", "knowledge-base", "bun"],
   "workspaces": [
     "packages/*"
   ],

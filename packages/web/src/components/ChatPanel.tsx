@@ -78,8 +78,8 @@ export function ChatPanel({
       <div className="flex-1 space-y-3 overflow-y-auto p-3">
         {messages.length === 0 && (
           <p className="p-4 text-sm text-zinc-500">
-            Ask or teach the knowledge base. Each turn runs as a fresh, persisted Hermes
-            librarian session.
+            Ask or teach the knowledge base. Each turn runs through a fresh,
+            isolated Librarian agent session.
           </p>
         )}
         {messages.map((message, index) => (
@@ -108,7 +108,7 @@ export function ChatPanel({
             ))}
           </div>
         )}
-        {busy && <div className="animate-pulse text-xs text-zinc-500">Hermes is working…</div>}
+        {busy && <div className="animate-pulse text-xs text-zinc-500">Librarian is working…</div>}
         {error && <div className="text-xs text-red-400">{error}</div>}
       </div>
 

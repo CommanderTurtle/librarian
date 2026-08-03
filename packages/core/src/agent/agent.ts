@@ -1,21 +1,23 @@
 import type { KnowledgeBase } from "../okf/index.js";
 import type { TreeNode } from "../okf/types.js";
 import {
-  runHermesGateway,
-  type HermesRunOptions,
-  type HermesToolEvent,
-} from "../hermes/gateway.js";
+  runAgentGateway,
+  type AgentRunOptions,
+  type AgentToolEvent,
+} from "../gateway/index.js";
+import { recordHotDelete, recordHotWrite } from "./hot-memory.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { formatTree } from "./tools.js";
 import { TraceRecorder, TraceStore } from "./trace.js";
 
-export interface AgentOptions extends HermesRunOptions {}
+export interface AgentOptions extends AgentRunOptions {}
 
 export interface QueryResult {
   answer: string;
   steps: number;
   traceId: string;
-  sessionId: string;
+  /** Empty when an exact/hot cache layer answered without launching an agent. */
+  sessionId?: string;
 }
 
 export interface MutationResult {
@@ -42,7 +44,7 @@ export interface ChatResult {
   steps: number;
   traceId?: string;
   sessionId: string;
-  toolEvents: HermesToolEvent[];
+  toolEvents: AgentToolEvent[];
 }
 
 async function promptContext(kb: KnowledgeBase, mode: "query" | "mutate" | "chat") {
@@ -58,7 +60,7 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function buildHermesPrompt(system: string, task: string): string {
+function buildAgentPrompt(system: string, task: string): string {
   return `${system}
 
 ## Execution boundary
@@ -73,7 +75,7 @@ automatically maintain indexes and logs.
 ${task}`;
 }
 
-/** Read-only Q&A over the bundle, executed by a fresh Hermes session. */
+/** Read-only Q&A over the bundle, executed by a fresh delegated agent session. */
 export async function runQuery(
   kb: KnowledgeBase,
   question: string,
@@ -83,8 +85,8 @@ export async function runQuery(
   const recorder = new TraceRecorder();
   let modelChain: string[] = [];
   try {
-    const result = await runHermesGateway(
-      buildHermesPrompt(buildSystemPrompt(ctx), question),
+    const result = await runAgentGateway(
+      buildAgentPrompt(buildSystemPrompt(ctx), question),
       { ...options, title: options.title ?? "Librarian query" }
     );
     modelChain = [result.modelLabel];
@@ -104,7 +106,7 @@ export async function runQuery(
   }
 }
 
-/** Knowledge add/update, executed by a fresh Hermes session. */
+/** Knowledge add/update, executed by a fresh delegated agent session. */
 export async function runMutation(
   kb: KnowledgeBase,
   instruction: string,
@@ -115,13 +117,15 @@ export async function runMutation(
   const before = await snapshotConcepts(kb);
   let modelChain: string[] = [];
   try {
-    const result = await runHermesGateway(
-      buildHermesPrompt(buildSystemPrompt(ctx), instruction),
+    const result = await runAgentGateway(
+      buildAgentPrompt(buildSystemPrompt(ctx), instruction),
       { ...options, title: options.title ?? "Librarian mutation" }
     );
     modelChain = [result.modelLabel];
     recordToolEvents(recorder, result.toolEvents);
-    const filesChanged = changedConcepts(before, await snapshotConcepts(kb));
+    const after = await snapshotConcepts(kb);
+    const filesChanged = changedConcepts(before, after);
+    recordHotChanges(filesChanged, after);
     const trace = recorder.finalize(
       "mutation",
       instruction,
@@ -141,7 +145,9 @@ export async function runMutation(
       },
     };
   } catch (err) {
-    const filesChanged = changedConcepts(before, await snapshotConcepts(kb));
+    const after = await snapshotConcepts(kb);
+    const filesChanged = changedConcepts(before, after);
+    recordHotChanges(filesChanged, after);
     const message = errorMessage(err);
     if (filesChanged.length > 0) {
       const summary = `Partial mutation: ${filesChanged.length} concept(s) changed before failure. Error: ${message}`;
@@ -161,7 +167,7 @@ export async function runMutation(
   }
 }
 
-/** Interactive web chat backed by a fresh Hermes session. */
+/** Interactive web chat backed by a fresh delegated agent session. */
 export async function runChat(
   kb: KnowledgeBase,
   messages: ChatMessage[],
@@ -178,13 +184,15 @@ export async function runChat(
   let modelChain: string[] = [];
 
   try {
-    const result = await runHermesGateway(
-      buildHermesPrompt(buildSystemPrompt(ctx), transcript),
+    const result = await runAgentGateway(
+      buildAgentPrompt(buildSystemPrompt(ctx), transcript),
       { ...options, title: options.title ?? "Librarian chat" }
     );
     modelChain = [result.modelLabel];
     recordToolEvents(recorder, result.toolEvents);
-    const filesChanged = changedConcepts(before, await snapshotConcepts(kb));
+    const after = await snapshotConcepts(kb);
+    const filesChanged = changedConcepts(before, after);
+    recordHotChanges(filesChanged, after);
     let traceId: string | undefined;
     if (recorder.steps.length > 0) {
       const trace = recorder.finalize("chat", input, result.answer, "success", modelChain);
@@ -200,9 +208,10 @@ export async function runChat(
       toolEvents: result.toolEvents,
     };
   } catch (err) {
-    const outcome = changedConcepts(before, await snapshotConcepts(kb)).length > 0
-      ? "partial"
-      : "failed";
+    const after = await snapshotConcepts(kb);
+    const filesChanged = changedConcepts(before, after);
+    recordHotChanges(filesChanged, after);
+    const outcome = filesChanged.length > 0 ? "partial" : "failed";
     await traceStore(kb).save(
       recorder.finalize("chat", input, errorMessage(err), outcome, modelChain)
     );
@@ -210,7 +219,7 @@ export async function runChat(
   }
 }
 
-function recordToolEvents(recorder: TraceRecorder, events: HermesToolEvent[]): void {
+function recordToolEvents(recorder: TraceRecorder, events: AgentToolEvent[]): void {
   for (const event of events) {
     if (event.status === "running") continue;
     const tool = normalizeToolName(event.name);
@@ -297,4 +306,11 @@ function changedConcepts(
   return [...all]
     .filter((conceptPath) => before.get(conceptPath) !== after.get(conceptPath))
     .sort();
+}
+
+function recordHotChanges(paths: string[], after: Map<string, string>): void {
+  for (const conceptPath of paths) {
+    if (after.has(conceptPath)) recordHotWrite(conceptPath);
+    else recordHotDelete(conceptPath);
+  }
 }

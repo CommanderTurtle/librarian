@@ -11,12 +11,12 @@ export function startDreamer(kb: KnowledgeBase): void {
   const raw = process.env.DREAM_INTERVAL;
   const interval = parseDuration(raw);
   if (!interval) {
-    if (raw) console.error(`[understory] invalid DREAM_INTERVAL "${raw}" — dreaming disabled`);
-    else console.log("[understory] dreaming: disabled (set DREAM_INTERVAL, e.g. 6h, to enable)");
+    if (raw) console.error(`[librarian] invalid DREAM_INTERVAL "${raw}" — dreaming disabled`);
+    else console.log("[librarian] dreaming: disabled (set DREAM_INTERVAL, e.g. 6h, to enable)");
     return;
   }
   const every = Math.max(interval, MIN_INTERVAL_MS);
-  console.log(`[understory] dreaming: every ${raw}${every !== interval ? " (clamped to 5m minimum)" : ""}`);
+  console.log(`[librarian] dreaming: every ${raw}${every !== interval ? " (clamped to 5m minimum)" : ""}`);
 
   let busy = false;
   const timer = setInterval(async () => {
@@ -26,13 +26,13 @@ export function startDreamer(kb: KnowledgeBase): void {
       const report = await runDream(kb);
       if (report.ran) {
         console.log(
-          `[understory] dream complete: ${report.filesChanged?.length ?? 0} file(s) changed — ${truncate(report.summary ?? "", 200)}`
+          `[librarian] dream complete: ${report.filesChanged?.length ?? 0} file(s) changed — ${truncate(report.summary ?? "", 200)}`
         );
       } else {
-        console.log(`[understory] dream skipped: ${report.reason}`);
+        console.log(`[librarian] dream skipped: ${report.reason}`);
       }
     } catch (err) {
-      console.error(`[understory] dream failed: ${(err as Error).message}`);
+      console.error(`[librarian] dream failed: ${(err as Error).message}`);
     } finally {
       busy = false;
     }

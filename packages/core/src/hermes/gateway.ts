@@ -2,31 +2,17 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
+import type {
+  AgentRunOptions,
+  AgentRunResult,
+  AgentToolEvent,
+} from "../gateway/types.js";
 
 type JsonObject = Record<string, unknown>;
 
-export interface HermesToolEvent {
-  toolId?: string;
-  name: string;
-  input?: unknown;
-  output?: unknown;
-  status: "running" | "complete" | "error";
-}
-
-export interface HermesRunOptions {
-  model?: string;
-  provider?: string;
-  cwd?: string;
-  title?: string;
-  timeoutMs?: number;
-}
-
-export interface HermesRunResult {
-  answer: string;
-  sessionId: string;
-  toolEvents: HermesToolEvent[];
-  modelLabel: string;
-}
+export type HermesToolEvent = AgentToolEvent;
+export type HermesRunOptions = AgentRunOptions;
+export type HermesRunResult = AgentRunResult;
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -160,6 +146,7 @@ export class HermesGatewayClient {
       sessionId: this.sessionId,
       toolEvents: this.toolEvents,
       modelLabel: `${provider || "profile"}:${model || "default"}`,
+      backend: "hermes",
     };
   }
 

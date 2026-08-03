@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 /**
  * High-level Librarian MCP over stdio. The setup script registers this with
- * the default Hermes profile and registers the private OKF operations server
- * with the isolated librarian profile.
+ * the default harness profile and registers the private OKF operations server
+ * with its isolated Librarian profile.
  */
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { KnowledgeBase } from "@understory/core";
+import { KnowledgeBase, agentBackendLabel } from "@understory/core";
 import { buildMcpServer } from "./server.js";
 
 const bundleRoot = process.env.BUNDLE_ROOT;
@@ -20,4 +20,6 @@ const kb = new KnowledgeBase(bundleRoot, {
 const server = await buildMcpServer(kb);
 await server.connect(new StdioServerTransport());
 // stdio transport keeps the process alive; logs must go to stderr only.
-console.error(`[librarian] serving bundle ${bundleRoot} over stdio through Hermes`);
+console.error(
+  `[librarian] serving bundle ${bundleRoot} over stdio through ${agentBackendLabel()}`
+);

@@ -9,7 +9,9 @@
     ".": "./dist/index.js",
     "./okf": "./dist/okf/index.js",
     "./agent": "./dist/agent/index.js",
-    "./hermes": "./dist/hermes/gateway.js"
+    "./gateway": "./dist/gateway/index.js",
+    "./hermes": "./dist/hermes/gateway.js",
+    "./omp": "./dist/omp/gateway.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

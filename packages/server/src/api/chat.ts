@@ -6,7 +6,7 @@ interface ChatBody {
   model?: string;
 }
 
-/** Web chat endpoint backed by the same Hermes librarian path as MCP calls. */
+/** Web chat endpoint backed by the same delegated Librarian path as MCP calls. */
 export function chatRouter(kb: KnowledgeBase): Router {
   const router = express.Router();
 

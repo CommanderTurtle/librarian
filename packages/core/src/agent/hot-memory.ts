@@ -1,5 +1,6 @@
 import type { KnowledgeBase } from "../okf/index.js";
 import { parseDuration } from "../util/duration.js";
+import { runAgentGateway } from "../gateway/index.js";
 import type { AgentOptions } from "./agent.js";
 
 /**
@@ -117,22 +118,14 @@ export async function hotLookup(
   return text;
 }
 
-/**
- * One tool-free generation. Provider access is feature-detected so this file
- * works with both the current provider API (resolveModel) and the upcoming
- * generic-slots API (resolveModelConfig/createModel) without edits.
- */
+/** One isolated, tool-free-by-contract call through the selected RPC backend. */
 const defaultGenerate: HotGenerate = async (system, prompt, options) => {
-  /* eslint-disable @typescript-eslint/no-explicit-any */
-  const providers: any = await import("../providers/index.js");
-  let model;
-  if (typeof providers.resolveModel === "function") {
-    model = await providers.resolveModel((options as any).provider, options.model);
-  } else {
-    const cfg = providers.resolveModelConfig(process.env);
-    model = await providers.createModel(options.model ? { ...cfg, model: options.model } : cfg);
-  }
-  const { generateText } = await import("ai");
-  const result = await generateText({ model, system, prompt, temperature: 0 });
-  return result.text;
+  const result = await runAgentGateway(
+    `${system}\n\n## Tool boundary\n\nDo not call any tool for this hot-memory check. ` +
+      `Use only the excerpts below; if they are insufficient, reply exactly UNKNOWN.\n\n${prompt}`,
+    { ...options, title: options.title ?? "Librarian hot memory" }
+  );
+  // The prompt is the primary guard. This result check keeps the layer
+  // semantically tool-free even if a configured harness disregards it.
+  return result.toolEvents.length === 0 ? result.answer : "UNKNOWN";
 };

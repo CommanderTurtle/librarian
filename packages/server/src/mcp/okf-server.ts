@@ -21,7 +21,7 @@ const logSummary = z
   .describe("One past-tense sentence for the update log, using bundle-relative links");
 
 /**
- * Private, deterministic OKF operations used by the librarian Hermes profile.
+ * Private, deterministic OKF operations used by the isolated Librarian profile.
  * This server contains no model/provider code. Every mutation passes through
  * KnowledgeBase so path sandboxing, indexes, logs, and conformance remain code
  * invariants.

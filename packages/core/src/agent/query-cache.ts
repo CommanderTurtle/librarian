@@ -64,8 +64,11 @@ export async function runQueryCached(
   }
 
   const fingerprint = await bundleFingerprint(kb);
+  const backend = options.backend ?? process.env.LIBRARIAN_AGENT_BACKEND ?? "hermes";
   const key = createHash("sha256")
-    .update(`${fingerprint}\n${normalize(question)}\n${options.model ?? ""}`)
+    .update(
+      `${fingerprint}\n${normalize(question)}\n${backend}\n${options.provider ?? ""}\n${options.model ?? ""}`
+    )
     .digest("hex");
 
   // Layer 1: exact cache — same question, unchanged bundle.
