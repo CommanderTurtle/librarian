@@ -14,6 +14,8 @@ export interface AgentRunOptions {
   model?: string;
   provider?: string;
   cwd?: string;
+  /** Override librarian-okf's bundle for this delegated process only. */
+  bundleRoot?: string;
   title?: string;
   timeoutMs?: number;
 }

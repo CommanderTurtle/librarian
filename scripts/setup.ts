@@ -97,6 +97,7 @@ const envValues: Record<string, string> = {
   DREAM_INTERVAL: process.env.DREAM_INTERVAL || "",
   DREAM_INSIGHTS: process.env.DREAM_INSIGHTS || "true",
   PORT: process.env.PORT || "3800",
+  AUTH_TOKEN: process.env.AUTH_TOKEN || "",
 };
 writeEnv(path.join(repoRoot, ".env"), envValues);
 
@@ -106,6 +107,13 @@ const librarianEntry = path.join(distRoot, "stdio.js");
 
 const privateEnv = {
   BUNDLE_ROOT: bundleRoot,
+  // Each fresh dream process may redirect only its own deterministic OKF MCP
+  // to an isolated copy. Hermes interpolates ${VAR}; OMP treats a config value
+  // matching an env-var name as an indirection. okf-stdio ignores either
+  // unresolved sentinel and falls back to the stable BUNDLE_ROOT above.
+  LIBRARIAN_BUNDLE_ROOT: backend === "hermes"
+    ? "${LIBRARIAN_BUNDLE_ROOT}"
+    : "LIBRARIAN_BUNDLE_ROOT",
   GIT_AUTOCOMMIT: envValues.GIT_AUTOCOMMIT,
 };
 const publicEnv = {

@@ -3,9 +3,9 @@ import { parseDuration, runDream, type KnowledgeBase } from "@understory/core";
 const MIN_INTERVAL_MS = 5 * 60_000;
 
 /**
- * Background dreamer: runs a consolidation pass every DREAM_INTERVAL
- * (e.g. "6h"). Opt-in — unset means no background token spend. The first
- * run happens one interval after boot, never at startup.
+ * Background dreamer: plans a consolidation pass every DREAM_INTERVAL in an
+ * isolated bundle copy. It never mutates live memory; approval remains a
+ * human action in the web UI. The first run happens one interval after boot.
  */
 export function startDreamer(kb: KnowledgeBase): void {
   const raw = process.env.DREAM_INTERVAL;
@@ -26,7 +26,7 @@ export function startDreamer(kb: KnowledgeBase): void {
       const report = await runDream(kb);
       if (report.ran) {
         console.log(
-          `[librarian] dream complete: ${report.filesChanged?.length ?? 0} file(s) changed — ${truncate(report.summary ?? "", 200)}`
+          `[librarian] dream proposal ${report.proposalId}: ${report.filesChanged?.length ?? 0} candidate edit(s), awaiting approval — ${truncate(report.summary ?? "", 200)}`
         );
       } else {
         console.log(`[librarian] dream skipped: ${report.reason}`);

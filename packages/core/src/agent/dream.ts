@@ -1,6 +1,7 @@
 import type { KnowledgeBase } from "../okf/index.js";
 import type { GraphNode } from "../okf/graph.js";
 import { runMutation, type AgentOptions } from "./agent.js";
+import { createDreamProposal, type DreamProposal } from "./dream-proposals.js";
 
 export interface DreamReport {
   ran: boolean;
@@ -8,6 +9,8 @@ export interface DreamReport {
   reason?: string;
   summary?: string;
   filesChanged?: string[];
+  proposalId?: string;
+  proposal?: DreamProposal;
 }
 
 export interface DuplicateCandidate {
@@ -19,9 +22,8 @@ export interface DuplicateCandidate {
 /**
  * Dreaming: an autonomous consolidation pass over the memory — what a brain
  * does during sleep. Deterministic signals decide whether there is anything
- * to dream about (orphans, broken links, likely duplicates, recent activity
- * worth abstracting); the agent then consolidates. No signals → no run, no
- * tokens.
+ * to dream about. The agent works only in an isolated bundle copy; the live
+ * knowledge base is unchanged until a human approves the resulting proposal.
  */
 export async function runDream(
   kb: KnowledgeBase,
@@ -93,31 +95,15 @@ export async function runDream(
     `\n\nWork through the applicable items above. Be conservative: prefer small, clearly ` +
     `justified edits over sweeping rewrites. Summarize exactly what changed.`;
 
-  const result = await runner(kb, `${instruction}`, options);
-  return { ran: true, ...normalizeMutation(result) };
-}
-
-/**
- * PR #5 changes runMutation's return shape from MutationResult to a
- * MutationOutcome union — accept both so this file needs no edits (and no
- * conflicts) whichever lands first.
- */
-function normalizeMutation(result: unknown): { summary: string; filesChanged: string[] } {
-  const r = result as Record<string, unknown>;
-  if (r && typeof r === "object" && "ok" in r) {
-    // MutationOutcome shape.
-    if (r.ok === true) {
-      const inner = r.result as { summary: string; filesChanged: string[] };
-      return { summary: inner.summary, filesChanged: inner.filesChanged };
-    }
-    return {
-      summary: `dream run failed: ${String(r.error ?? "unknown error")}`,
-      filesChanged: Array.isArray(r.filesChanged) ? (r.filesChanged as string[]) : [],
-    };
-  }
-  // MutationResult shape.
-  const m = r as { summary?: string; filesChanged?: string[] };
-  return { summary: m.summary ?? "", filesChanged: m.filesChanged ?? [] };
+  const result = await createDreamProposal(kb, instruction, options, runner);
+  if (!result.ran || !result.proposal) return { ran: false, reason: result.reason };
+  return {
+    ran: true,
+    summary: result.proposal.summary,
+    filesChanged: result.proposal.edits.map((edit) => edit.path),
+    proposalId: result.proposal.id,
+    proposal: result.proposal,
+  };
 }
 
 export interface OversizedConcept {

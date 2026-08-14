@@ -11,3 +11,5 @@ export { buildSystemPrompt } from "./system-prompt.js";
 export { formatTree } from "./tools.js";
 export { TraceRecorder, TraceStore, buildNotation } from "./trace.js";
 export type { QueryTrace, TraceStep, TraceOutcome } from "./trace.js";
+export { createDreamProposal, DreamProposalStore } from "./dream-proposals.js";
+export type { DreamProposal, DreamEdit, DreamProposalStatus, DreamProposalReport } from "./dream-proposals.js";

@@ -5,11 +5,13 @@ import { ConceptView } from "./components/ConceptView";
 import { LogView } from "./components/LogView";
 import { ChatPanel } from "./components/ChatPanel";
 import { GraphView } from "./components/GraphView";
+import { DreamsView } from "./components/DreamsView";
 
 type View =
   | { kind: "concept"; path: string }
   | { kind: "log" }
   | { kind: "graph" }
+  | { kind: "dreams" }
   | { kind: "empty" };
 
 export default function App() {
@@ -183,6 +185,12 @@ export default function App() {
             Graph
           </button>
           <button
+            onClick={() => setView({ kind: "dreams" })}
+            className={`flex-1 border-l border-zinc-800 px-3 py-2 hover:bg-zinc-800 ${view.kind === "dreams" ? "text-cyan-300" : "text-zinc-400"}`}
+          >
+            Dreams
+          </button>
+          <button
             onClick={() => setChatOpen(!chatOpen)}
             className="flex-1 border-l border-zinc-800 px-3 py-2 text-zinc-400 hover:bg-zinc-800"
           >
@@ -192,7 +200,7 @@ export default function App() {
       </aside>
 
       {/* Main */}
-      <main className={`min-w-0 flex-1 ${view.kind === "graph" ? "overflow-hidden" : "overflow-y-auto"}`}>
+      <main className={`min-w-0 flex-1 ${view.kind === "graph" || view.kind === "dreams" ? "overflow-hidden" : "overflow-y-auto"}`}>
         {error && <p className="p-6 text-sm text-red-400">{error}</p>}
         {!error && view.kind === "empty" && (
           <div className="flex h-full items-center justify-center text-zinc-600">
@@ -206,6 +214,7 @@ export default function App() {
         {!error && view.kind === "graph" && (
           <GraphView refreshKey={graphRefreshKey} onNavigate={openConcept} />
         )}
+        {!error && view.kind === "dreams" && <DreamsView onApplied={onMutation} />}
       </main>
 
       {/* Chat */}

@@ -52,7 +52,7 @@ export class HermesGatewayClient {
   private readyReject!: (error: Error) => void;
   private readonly ready: Promise<void>;
 
-  constructor() {
+  constructor(options: HermesRunOptions = {}) {
     this.ready = new Promise<void>((resolve, reject) => {
       this.readyResolve = resolve;
       this.readyReject = reject;
@@ -71,6 +71,7 @@ export class HermesGatewayClient {
         ...process.env,
         HERMES_HOME: profileHome,
         PYTHONUNBUFFERED: "1",
+        ...(options.bundleRoot ? { LIBRARIAN_BUNDLE_ROOT: options.bundleRoot } : {}),
       },
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -318,7 +319,7 @@ export async function runHermesGateway(
   prompt: string,
   options: HermesRunOptions = {}
 ): Promise<HermesRunResult> {
-  const client = new HermesGatewayClient();
+  const client = new HermesGatewayClient(options);
   try {
     return await client.run(prompt, options);
   } finally {

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { KnowledgeBase } from "../src/okf/index.js";
 import { duplicateCandidates, oversizedConcepts, runDream } from "../src/agent/dream.js";
+import { DreamProposalStore } from "../src/agent/dream-proposals.js";
 
 let root: string;
 let kb: KnowledgeBase;
@@ -45,22 +46,68 @@ describe("runDream", () => {
   it("dreams when there are orphans, feeding them into the instruction", async () => {
     await kb.writeConcept("/hub.md", { type: "T", title: "Central hub", description: "main entry" }, "core", "add");
     await kb.writeConcept("/stray.md", { type: "T", title: "Stray note", description: "unconnected detail" }, "alone", "add");
-    const runner = vi.fn(async () => ({ summary: "wired stray into hub", filesChanged: ["/hub.md"], steps: 3, traceId: "t" }));
+    const runner = vi.fn(async (staged: KnowledgeBase) => {
+      await staged.patchConcept("/hub.md", { replaceBody: "core\n\nSee [Stray](/stray.md)." }, "wire stray");
+      return { ok: true as const, result: { summary: "wired stray into hub", filesChanged: ["/hub.md"], steps: 3, traceId: "t", sessionId: "s" } };
+    });
     const report = await runDream(kb, {}, runner as never);
     expect(report.ran).toBe(true);
     expect(report.summary).toBe("wired stray into hub");
+    expect(report.proposalId).toBeTruthy();
+    expect((await kb.readConcept("/hub.md")).body.trim()).toBe("core");
     const instruction = runner.mock.calls[0][1] as unknown as string;
+    const options = runner.mock.calls[0][2] as unknown as { cwd: string; bundleRoot: string };
     expect(instruction).toContain("DREAM");
     expect(instruction).toContain("/stray.md");
+    expect(options.bundleRoot).toBe(options.cwd);
+    expect(options.bundleRoot).not.toBe(root);
   });
 
-  it("normalizes the PR#5 MutationOutcome shape too", async () => {
+  it("records a pending proposal from the MutationOutcome without touching live memory", async () => {
     await kb.writeConcept("/only.md", { type: "T", title: "Only one", description: "solo" }, "x", "add");
-    const runner = vi.fn(async () => ({ ok: true, result: { summary: "done", filesChanged: ["/only.md"], steps: 1, traceId: "t" } }));
+    const runner = vi.fn(async (staged: KnowledgeBase) => {
+      await staged.patchConcept("/only.md", { replaceBody: "planned" }, "plan");
+      return { ok: true as const, result: { summary: "done", filesChanged: ["/only.md"], steps: 1, traceId: "t", sessionId: "s" } };
+    });
     const report = await runDream(kb, {}, runner as never);
     expect(report.ran).toBe(true);
     expect(report.summary).toBe("done");
     expect(report.filesChanged).toEqual(["/only.md"]);
+    expect(report.proposal?.status).toBe("pending");
+    expect((await kb.readConcept("/only.md")).body.trim()).toBe("x");
+
+    const store = new DreamProposalStore(kb);
+    await store.apply(report.proposalId!);
+    expect((await kb.readConcept("/only.md")).body.trim()).toBe("planned");
+    await store.rollback(report.proposalId!);
+    expect((await kb.readConcept("/only.md")).body.trim()).toBe("x");
+  });
+
+  it("does not stage a second dream while one proposal awaits review", async () => {
+    await kb.writeConcept("/only.md", { type: "T", title: "Only one", description: "solo" }, "x", "add");
+    const runner = vi.fn(async (staged: KnowledgeBase) => {
+      await staged.patchConcept("/only.md", { replaceBody: "planned" }, "plan");
+      return { ok: true as const, result: { summary: "done", filesChanged: ["/only.md"], steps: 1, traceId: "t", sessionId: "s" } };
+    });
+    expect((await runDream(kb, {}, runner as never)).ran).toBe(true);
+    const second = await runDream(kb, {}, runner as never);
+    expect(second.ran).toBe(false);
+    expect(second.reason).toContain("already awaiting review");
+    expect(runner).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when live memory changes after a proposal is staged", async () => {
+    await kb.writeConcept("/only.md", { type: "T", title: "Only one", description: "solo" }, "x", "add");
+    const runner = vi.fn(async (staged: KnowledgeBase) => {
+      await staged.patchConcept("/only.md", { replaceBody: "planned" }, "plan");
+      return { ok: true as const, result: { summary: "done", filesChanged: ["/only.md"], steps: 1, traceId: "t", sessionId: "s" } };
+    });
+    const report = await runDream(kb, {}, runner as never);
+    await kb.patchConcept("/only.md", { replaceBody: "newer live edit" }, "concurrent edit");
+    const store = new DreamProposalStore(kb);
+    await expect(store.apply(report.proposalId!)).rejects.toThrow("Live concepts changed after planning");
+    expect((await store.read(report.proposalId!))?.status).toBe("conflicted");
+    expect((await kb.readConcept("/only.md")).body.trim()).toBe("newer live edit");
   });
 });
 
@@ -82,7 +129,10 @@ describe("oversizedConcepts", () => {
     await kb.patchConcept("/people/fat.md", { replaceSection: { heading: "Topic 0", content: "see [Friend](/facts/friend.md)" } }, "link");
     await kb.writeConcept("/facts/friend.md", { type: "Fact", title: "Friend", description: "companion" }, "see [Fat](/people/fat.md)", "add");
 
-    const runner = vi.fn(async () => ({ summary: "split", filesChanged: ["/people/fat.md"], steps: 4, traceId: "t" }));
+    const runner = vi.fn(async (staged: KnowledgeBase) => {
+      await staged.patchConcept("/people/fat.md", { replaceBody: "# Summary\n\nSplit proposal." }, "plan split");
+      return { ok: true as const, result: { summary: "split", filesChanged: ["/people/fat.md"], steps: 4, traceId: "t", sessionId: "s" } };
+    });
     const report = await runDream(kb, {}, runner as never);
     expect(report.ran).toBe(true);
     const instruction = runner.mock.calls[0][1] as unknown as string;

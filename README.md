@@ -54,7 +54,24 @@ through to the deep agent.
 The optional persistent web service can also run conservative memory
 consolidation. Set `DREAM_INTERVAL=6h` (or another duration) to enable it.
 Dreaming is disabled by default, never runs at startup, never overlaps itself,
-and does not run in ephemeral stdio MCP processes.
+and does not run in ephemeral stdio MCP processes. A dream now runs against an
+isolated copy of the bundle and saves a pending proposal; it never changes live
+memory by itself. The fresh Hermes or OMP process passes a process-local bundle
+override to its private `librarian-okf` MCP, so the agent's actual read/write
+tool calls are confined to that copy without rewriting either harness profile.
+
+The web UI's **Dreams** view shows every proposed concept as a side-by-side
+before/after diff. Only the human-only HTTP approval route can apply or reject
+it; no model-facing MCP tool has approval authority. Approval first verifies
+that every live concept still matches the proposal baseline. Applied proposals
+retain their preimages and can be rolled back from the same view, while a later
+concept change blocks rollback rather than overwriting newer knowledge. This
+adapts Prime Agent's plan/apply/rollback refinement lifecycle and
+LongHorizon-Harness' persisted human gate without adding another agent loop.
+Only one pending proposal is allowed at a time, preventing a periodic dreamer
+from producing duplicate proposals against the same baseline. All web dream
+controls require `AUTH_TOKEN`; without it proposals are read-only and the
+control routes fail closed.
 
 ## Setup
 
@@ -114,16 +131,17 @@ sessions, and configuration remain on the machine running the chosen harness.
 ## Optional web browser
 
 The MCP servers are stdio processes and require no persistent Librarian
-service. To browse the OKF tree, graph, traces, and chat through the selected
+service. To browse the OKF tree, graph, traces, dream proposals, and chat through the selected
 backend:
 
 ```bash
 ./start.sh
 ```
 
-The default address is `http://localhost:3800`. Set `AUTH_TOKEN` before
-exposing it beyond a trusted host or LAN. Only this persistent process runs the
-optional dream scheduler.
+The default address is `http://localhost:3800`. Set `AUTH_TOKEN` to enable the
+Dreams view's propose/approve/reject/rollback controls, and always before
+exposing the service beyond a trusted host or LAN. Only this persistent process
+runs the optional dream scheduler.
 
 ## Update
 
@@ -132,7 +150,9 @@ optional dream scheduler.
 ```
 
 The update path rebases the Librarian repository with an autostash, performs a
-frozen Bun install, and rebuilds every package. Rerun `bun run setup` only when
+frozen Bun install, and rebuilds every package. Run `bun run setup` once after
+installing this proposal-only dreaming update so the private MCP registration
+receives its process-local bundle override. Later reruns are needed only when
 paths, backend, profile, model, or MCP registrations change.
 
 ## Development
@@ -168,7 +188,9 @@ Hermes default profile                    OMP default profile
                       └─ Markdown OKF bundle                       └─ Markdown OKF bundle
 ```
 
-Query traces stay local under `<bundle>/.traces/`.
+Query traces stay local under `<bundle>/.traces/`. Dream proposals and their
+preimages stay local under `<bundle>/.librarian/dream-proposals/`; the bundle
+walker ignores this internal directory.
 
 ## License
 

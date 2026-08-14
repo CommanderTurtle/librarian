@@ -281,7 +281,7 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
-async function snapshotConcepts(kb: KnowledgeBase): Promise<Map<string, string>> {
+export async function snapshotConcepts(kb: KnowledgeBase): Promise<Map<string, string>> {
   const tree = await kb.listTree();
   const paths: string[] = [];
   const visit = (node: TreeNode) => {
@@ -298,7 +298,7 @@ async function snapshotConcepts(kb: KnowledgeBase): Promise<Map<string, string>>
   return new Map(concepts);
 }
 
-function changedConcepts(
+export function changedConcepts(
   before: Map<string, string>,
   after: Map<string, string>
 ): string[] {

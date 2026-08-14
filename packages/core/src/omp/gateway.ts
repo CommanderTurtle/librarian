@@ -65,6 +65,7 @@ export class OmpGatewayClient {
       env: {
         ...process.env,
         PI_RPC_EMIT_TITLE: "0",
+        ...(options.bundleRoot ? { LIBRARIAN_BUNDLE_ROOT: options.bundleRoot } : {}),
       },
       stdio: ["pipe", "pipe", "pipe"],
     });

@@ -77,6 +77,24 @@ export interface AppConfig {
   fallbackConfigured: boolean;
 }
 
+export interface DreamEdit {
+  path: string;
+  action: "create" | "update" | "delete";
+  before: string | null;
+  after: string | null;
+}
+
+export interface DreamProposal {
+  id: string;
+  status: "pending" | "applied" | "rejected" | "rolled_back" | "conflicted" | "failed";
+  createdAt: string;
+  updatedAt: string;
+  summary: string;
+  instruction: string;
+  edits: DreamEdit[];
+  error?: string;
+}
+
 const TOKEN_KEY = "librarian-token";
 
 export function getAuthToken(): string {
@@ -107,6 +125,12 @@ async function get<T>(url: string): Promise<T> {
   return res.json();
 }
 
+async function post<T>(url: string): Promise<T> {
+  const res = await fetch(url, { method: "POST", headers: authHeaders() });
+  if (!res.ok) throw new ApiError(res.status, `${res.status} ${await res.text()}`);
+  return res.json();
+}
+
 export const api = {
   tree: () => get<TreeNode>("/api/tree"),
   concept: (path: string) => get<Concept>(`/api/concept?path=${encodeURIComponent(path)}`),
@@ -117,4 +141,10 @@ export const api = {
   traces: () => get<TraceSummary[]>("/api/traces"),
   trace: (id: string) => get<QueryTrace>(`/api/trace?id=${encodeURIComponent(id)}`),
   config: () => get<AppConfig>("/api/config"),
+  dreams: () => get<DreamProposal[]>("/api/dreams"),
+  dream: (id: string) => get<DreamProposal>(`/api/dreams/${encodeURIComponent(id)}`),
+  proposeDream: () => post<{ ran: boolean; reason?: string; proposal?: DreamProposal }>("/api/dreams/propose"),
+  approveDream: (id: string) => post<DreamProposal>(`/api/dreams/${encodeURIComponent(id)}/approve`),
+  rejectDream: (id: string) => post<DreamProposal>(`/api/dreams/${encodeURIComponent(id)}/reject`),
+  rollbackDream: (id: string) => post<DreamProposal>(`/api/dreams/${encodeURIComponent(id)}/rollback`),
 };
