@@ -270,3 +270,45 @@ describe("mutation serialization", () => {
     expect(concepts.length).toBe(8);
   });
 });
+
+describe("empty directory pruning (#10)", () => {
+  it("prunes a directory left holding only its index.md after the last concept is deleted", async () => {
+    await kb.writeConcept("/family/children/kid.md", { type: "Person", title: "Kid" }, "x", "add");
+    await kb.writeConcept("/family/parent.md", { type: "Person", title: "Parent" }, "x", "add");
+    await kb.deleteConcept("/family/children/kid.md", "moved elsewhere");
+
+    // /family/children held only index.md → gone; /family still has parent.md → kept.
+    await expect(fs.access(path.join(root, "family/children"))).rejects.toThrow();
+    await expect(fs.access(path.join(root, "family/parent.md"))).resolves.toBeUndefined();
+    // Parent index no longer lists the pruned subdirectory.
+    const familyIndex = await fs.readFile(path.join(root, "family/index.md"), "utf-8");
+    expect(familyIndex).not.toContain("children");
+  });
+
+  it("prunes emptied ancestor chains but never the root", async () => {
+    await kb.writeConcept("/a/b/c/deep.md", { type: "T", title: "Deep" }, "x", "add");
+    await kb.writeConcept("/other/keep.md", { type: "T", title: "Keep" }, "x", "add");
+    await kb.deleteConcept("/a/b/c/deep.md", "gone");
+
+    for (const dir of ["a/b/c", "a/b", "a"]) {
+      await expect(fs.access(path.join(root, dir))).rejects.toThrow();
+    }
+    await expect(fs.access(root)).resolves.toBeUndefined();
+    const rootIndex = await fs.readFile(path.join(root, "index.md"), "utf-8");
+    expect(rootIndex).not.toContain("[a](a/)");
+    expect(rootIndex).toContain("other");
+  });
+
+  it("heals pre-existing husks on the next unrelated mutation and spares dot-dirs", async () => {
+    // Simulate an old husk + a .traces dir behind the KB's back.
+    await fs.mkdir(path.join(root, "husk"), { recursive: true });
+    await fs.writeFile(path.join(root, "husk/index.md"), "# Husk\n");
+    await fs.mkdir(path.join(root, ".traces"), { recursive: true });
+    await fs.writeFile(path.join(root, ".traces/t.json"), "{}");
+
+    await kb.writeConcept("/fresh.md", { type: "T", title: "Fresh" }, "x", "add");
+
+    await expect(fs.access(path.join(root, "husk"))).rejects.toThrow();
+    await expect(fs.access(path.join(root, ".traces/t.json"))).resolves.toBeUndefined();
+  });
+});

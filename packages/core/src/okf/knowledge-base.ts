@@ -1,7 +1,7 @@
 import path from "node:path";
 import { simpleGit, type SimpleGit } from "simple-git";
 import { Bundle } from "./bundle.js";
-import { regenerateIndexChain } from "./indexer.js";
+import { pruneEmptyDirs, regenerateIndexChain } from "./indexer.js";
 import { appendLog, readLog } from "./logger.js";
 import { searchBundle, listTypes, type SearchOptions } from "./search.js";
 import { validateBundle } from "./validate.js";
@@ -120,6 +120,10 @@ export class KnowledgeBase {
     action: LogAction,
     logSummary: string
   ): Promise<void> {
+    // Sweep husks first (dirs holding only their auto-generated index.md) so
+    // the reindex below never resurrects a pruned directory. Whole-bundle:
+    // cheap at this scale, and it also heals husks from before this feature.
+    await pruneEmptyDirs(this.bundle);
     await regenerateIndexChain(this.bundle, path.posix.dirname(conceptPath));
     const linked = `[${conceptPath.split("/").pop()}](${conceptPath})`;
     await appendLog(this.bundle, action, logSummary || `${action} of ${linked}.`);
