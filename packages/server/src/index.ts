@@ -21,7 +21,7 @@ const kb = new KnowledgeBase(bundleRoot, {
   gitAutocommit: process.env.GIT_AUTOCOMMIT === "true",
 });
 
-startDreamer(kb);
+const dreamer = startDreamer(kb);
 
 const app = express();
 
@@ -64,7 +64,7 @@ if (authToken) {
 app.use("/mcp", mcpRouter(kb));
 app.use("/api", browseRouter(kb));
 app.use("/api", chatRouter(kb));
-app.use("/api", dreamsRouter(kb, Boolean(authToken)));
+app.use("/api", dreamsRouter(kb, Boolean(authToken), dreamer));
 
 // Serve the built web UI in production (single container), with SPA fallback.
 const webDist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../web/dist");

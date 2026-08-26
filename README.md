@@ -51,27 +51,34 @@ Any bundle change invalidates exact answers. Hot answers are accepted only when
 the selected harness returns a tool-free response; otherwise the request falls
 through to the deep agent.
 
-The optional persistent web service can also run conservative memory
-consolidation. Set `DREAM_INTERVAL=6h` (or another duration) to enable it.
-Dreaming is disabled by default, never runs at startup, never overlaps itself,
-and does not run in ephemeral stdio MCP processes. A dream now runs against an
-isolated copy of the bundle and saves a pending proposal; it never changes live
-memory by itself. The fresh Hermes or OMP process passes a process-local bundle
-override to its private `librarian-okf` MCP, so the agent's actual read/write
-tool calls are confined to that copy without rewriting either harness profile.
+The optional persistent web service also runs conservative memory consolidation.
+It checks every six hours by default, with the first check delayed ten minutes
+after startup. Set `DREAM_INTERVAL` to another duration or to `off`; set
+`DREAM_START_DELAY` independently when a different first-check delay is useful.
+Checks are scheduled only after the preceding run finishes, never overlap, and
+do not run in ephemeral stdio MCP processes. A dream runs against an isolated
+copy of the bundle and saves a pending proposal; it never changes live memory
+by itself. The fresh Hermes or OMP process passes a process-local bundle override
+to its private `librarian-okf` MCP, so the agent's actual read/write tool calls
+are confined to that copy without rewriting either harness profile. Only one
+pending proposal is permitted, so an unattended scheduler cannot accumulate
+competing plans against the same baseline.
 
-The web UI's **Dreams** view shows every proposed concept as a side-by-side
-before/after diff. Only the human-only HTTP approval route can apply or reject
-it; no model-facing MCP tool has approval authority. Approval first verifies
-that every live concept still matches the proposal baseline. Applied proposals
-retain their preimages and can be rolled back from the same view, while a later
-concept change blocks rollback rather than overwriting newer knowledge. This
-adapts Prime Agent's plan/apply/rollback refinement lifecycle and
-LongHorizon-Harness' persisted human gate without adding another agent loop.
-Only one pending proposal is allowed at a time, preventing a periodic dreamer
-from producing duplicate proposals against the same baseline. All web dream
-controls require `AUTH_TOKEN`; without it proposals are read-only and the
-control routes fail closed.
+The web UI's **Dreams** view auto-refreshes proposal history and scheduler state,
+shows the next and previous checks, highlights changed lines in every exact
+before/after diff, and confirms each apply/reject/rollback action. Only the
+human-only HTTP approval route can resolve a proposal; no model-facing MCP tool
+has approval authority. Approval first verifies both the stored proposal hashes
+and every live concept baseline. Applied proposals retain their preimages and
+can be rolled back from the same view, while a later concept change blocks
+rollback rather than overwriting newer knowledge. Interrupted multi-file apply
+or rollback operations compensate completed edits and retain an explicit error
+when compensation cannot fully restore the prior state. This adapts Prime
+Agent's plan/apply/rollback refinement lifecycle and LongHorizon-Harness'
+persisted human gate without adding another agent loop. All web dream controls
+require `AUTH_TOKEN`; without it proposals are read-only and the control routes
+fail closed. The UI's **Deauthorize** action forgets its browser-local bearer
+token; the server remains stateless.
 
 ## Setup
 
@@ -114,13 +121,16 @@ Setup follows OMP's native
 [profile-scoped MCP configuration](https://github.com/can1357/oh-my-pi/blob/main/docs/mcp-config.md):
 
 - the public `librarian` MCP is merged into `~/.omp/agent/mcp.json`;
-- private `librarian-okf` operations are merged into
-  `~/.omp/profiles/librarian/agent/mcp.json`;
+- the dedicated `~/.omp/profiles/librarian/agent/mcp.json` is converged to the
+  private `librarian-okf` server only;
 - delegated workers launch as `omp --profile librarian --mode rpc --no-session`.
 
-The two profile files are deliberately separate. The worker profile cannot
-discover its own public `memory_*` server, so a delegated call cannot recurse
-back into Librarian. Override `OMP_HOME`, `OMP_AGENT_DIR`,
+The two profile files are deliberately separate. Rerunning setup removes stale
+MCP registrations from the dedicated worker profile but never prunes the normal
+OMP profile. The worker therefore cannot discover its own public `memory_*`
+server or recurse back into Librarian. Setup also repairs an old
+`OMP_AGENT_DIR` value that accidentally points into a named profile. Override
+`OMP_HOME`, `OMP_AGENT_DIR`,
 `OMP_PROFILE_AGENT_DIR`, `OMP_PROFILE`, or `OMP_COMMAND` for a non-default
 layout. `OMP_MODEL` plus `OMP_PROVIDER` select a model explicitly; blank values
 inherit the active OMP profile.
@@ -141,7 +151,8 @@ backend:
 The default address is `http://localhost:3800`. Set `AUTH_TOKEN` to enable the
 Dreams view's propose/approve/reject/rollback controls, and always before
 exposing the service beyond a trusted host or LAN. Only this persistent process
-runs the optional dream scheduler.
+runs the optional dream scheduler. Native Hermes and OMP RPC usage is attached
+to traces when the selected harness reports it.
 
 ## Update
 
@@ -151,9 +162,9 @@ runs the optional dream scheduler.
 
 The update path rebases the Librarian repository with an autostash, performs a
 frozen Bun install, and rebuilds every package. Run `bun run setup` once after
-installing this proposal-only dreaming update so the private MCP registration
-receives its process-local bundle override. Later reruns are needed only when
-paths, backend, profile, model, or MCP registrations change.
+installing this dreaming update so the scheduler defaults and the exact private
+MCP boundary are written. Later reruns are needed only when paths, backend,
+profile, model, or MCP registrations change.
 
 ## Development
 

@@ -133,12 +133,18 @@ export class OmpGatewayClient {
       "OMP librarian turn"
     );
 
+    // OMP 18.x exposes aggregate usage through the stable RPC command rather
+    // than attaching it to agent_end. This is a fresh --no-session process, so
+    // the session totals are exactly this Librarian run's totals.
+    const stats = await this.request("get_session_stats").catch(() => null);
+
     return {
       answer: this.lastAssistantText,
       sessionId: this.sessionId,
       toolEvents: this.toolEvents,
       modelLabel: this.modelLabel,
       backend: "omp",
+      ...ompUsageResult(stats),
     };
   }
 
@@ -373,6 +379,24 @@ function firstString(...values: unknown[]): string {
     if (typeof value === "string" && value) return value;
   }
   return "";
+}
+
+function ompUsageResult(
+  response: JsonObject | null
+): { usage: { inputTokens: number; outputTokens: number } } | Record<string, never> {
+  const tokens = asObject(asObject(response?.data).tokens);
+  const inputTokens = firstNumber(tokens.input);
+  const outputTokens = firstNumber(tokens.output);
+  return inputTokens === null && outputTokens === null
+    ? {}
+    : { usage: { inputTokens: inputTokens ?? 0, outputTokens: outputTokens ?? 0 } };
+}
+
+function firstNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) return value;
+  }
+  return null;
 }
 
 function expandHome(value: string): string {

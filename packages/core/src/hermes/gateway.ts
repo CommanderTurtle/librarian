@@ -148,6 +148,7 @@ export class HermesGatewayClient {
       toolEvents: this.toolEvents,
       modelLabel: `${provider || "profile"}:${model || "default"}`,
       backend: "hermes",
+      ...usageResult(payload.usage),
     };
   }
 
@@ -338,6 +339,22 @@ function firstString(...values: unknown[]): string {
     if (typeof value === "string" && value) return value;
   }
   return "";
+}
+
+function usageResult(value: unknown): { usage: { inputTokens: number; outputTokens: number } } | Record<string, never> {
+  const usage = asObject(value);
+  const inputTokens = firstNumber(usage.input, usage.input_tokens, usage.prompt);
+  const outputTokens = firstNumber(usage.output, usage.output_tokens, usage.completion);
+  return inputTokens === null && outputTokens === null
+    ? {}
+    : { usage: { inputTokens: inputTokens ?? 0, outputTokens: outputTokens ?? 0 } };
+}
+
+function firstNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) return value;
+  }
+  return null;
 }
 
 function errorText(value: unknown): string {

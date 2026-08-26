@@ -1,7 +1,11 @@
 import type { KnowledgeBase } from "../okf/index.js";
 import type { GraphNode } from "../okf/graph.js";
 import { runMutation, type AgentOptions } from "./agent.js";
-import { createDreamProposal, type DreamProposal } from "./dream-proposals.js";
+import {
+  createDreamProposal,
+  DreamProposalStore,
+  type DreamProposal,
+} from "./dream-proposals.js";
 
 export interface DreamReport {
   ran: boolean;
@@ -31,6 +35,15 @@ export async function runDream(
   // Injectable for tests.
   runner: typeof runMutation = runMutation
 ): Promise<DreamReport> {
+  // A pending plan is the review queue. Avoid even the deterministic graph
+  // scan while the human still has an earlier proposal to resolve.
+  const pending = (await new DreamProposalStore(kb).list()).find(
+    (proposal) => proposal.status === "pending"
+  );
+  if (pending) {
+    return { ran: false, reason: `dream proposal ${pending.id} is already awaiting review` };
+  }
+
   const [lint, graph, log, fat] = await Promise.all([
     kb.lint(),
     kb.graph(),

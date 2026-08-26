@@ -53,6 +53,12 @@ export interface DreamProposalReport {
   proposal?: DreamProposal;
 }
 
+// Proposal creation and resolution share one process-local critical section
+// per bundle. The persistent web service is the only component authorized to
+// resolve dreams, so this closes double-click/manual-vs-scheduler races without
+// introducing a second daemon or a lock file that could survive a crash.
+const proposalLocks = new Map<string, Promise<void>>();
+
 export class DreamProposalStore {
   readonly root: string;
 
@@ -93,60 +99,130 @@ export class DreamProposalStore {
   }
 
   async reject(id: string): Promise<DreamProposal> {
-    const proposal = await this.requirePending(id);
-    proposal.status = "rejected";
-    proposal.updatedAt = new Date().toISOString();
-    await this.save(proposal);
-    return proposal;
+    return withProposalLock(this.root, async () => {
+      const proposal = await this.requirePending(id);
+      proposal.status = "rejected";
+      proposal.updatedAt = new Date().toISOString();
+      delete proposal.error;
+      await this.save(proposal);
+      return proposal;
+    });
   }
 
   async apply(id: string): Promise<DreamProposal> {
-    const proposal = await this.requirePending(id);
-    const conflicts = await this.conflicts(proposal.edits, "beforeHash");
-    if (conflicts.length > 0) {
-      proposal.status = "conflicted";
-      proposal.error = `Live concepts changed after planning: ${conflicts.join(", ")}`;
-      proposal.updatedAt = new Date().toISOString();
-      await this.save(proposal);
-      throw new Error(proposal.error);
-    }
-    const applied: DreamEdit[] = [];
-    try {
-      for (const edit of proposal.edits) {
-        await applyRaw(this.kb, edit.path, edit.after, `Approved dream proposal ${proposal.id}`);
-        const raw = await currentRaw(this.kb, edit.path);
-        edit.applied = raw;
-        edit.appliedHash = hash(raw);
-        applied.push(edit);
+    return withProposalLock(this.root, async () => {
+      const proposal = await this.requirePending(id);
+      const corrupt = proposal.edits
+        .filter((edit) => hash(edit.before) !== edit.beforeHash || hash(edit.after) !== edit.afterHash)
+        .map((edit) => edit.path);
+      if (corrupt.length > 0) {
+        proposal.status = "failed";
+        proposal.error = `Proposal preimage integrity check failed: ${corrupt.join(", ")}`;
+        proposal.updatedAt = new Date().toISOString();
+        await this.save(proposal);
+        throw new Error(proposal.error);
       }
-      proposal.status = "applied";
-      proposal.updatedAt = new Date().toISOString();
-      await this.save(proposal);
-      return proposal;
-    } catch (error) {
-      for (const edit of applied.reverse()) {
-        await applyRaw(this.kb, edit.path, edit.before, `Automatic rollback of failed dream proposal ${proposal.id}`).catch(() => {});
+
+      const conflicts = await this.conflicts(proposal.edits, "beforeHash");
+      if (conflicts.length > 0) {
+        proposal.status = "conflicted";
+        proposal.error = `Live concepts changed after planning: ${conflicts.join(", ")}`;
+        proposal.updatedAt = new Date().toISOString();
+        await this.save(proposal);
+        throw new Error(proposal.error);
       }
-      proposal.status = "failed";
-      proposal.error = error instanceof Error ? error.message : String(error);
-      proposal.updatedAt = new Date().toISOString();
-      await this.save(proposal);
-      throw error;
-    }
+
+      const applied: DreamEdit[] = [];
+      try {
+        for (const edit of proposal.edits) {
+          // Include the in-flight edit in compensation. KnowledgeBase writes
+          // the concept before indexing/logging/autocommit, so a later failure
+          // can otherwise leave the file changed even though applyRaw rejects.
+          applied.push(edit);
+          await applyRaw(this.kb, edit.path, edit.after, `Approved dream proposal ${proposal.id}`);
+          const raw = await currentRaw(this.kb, edit.path);
+          edit.applied = raw;
+          edit.appliedHash = hash(raw);
+        }
+        proposal.status = "applied";
+        proposal.updatedAt = new Date().toISOString();
+        delete proposal.error;
+        await this.save(proposal);
+        return proposal;
+      } catch (error) {
+        const compensationErrors: string[] = [];
+        for (const edit of [...applied].reverse()) {
+          try {
+            await applyRaw(
+              this.kb,
+              edit.path,
+              edit.before,
+              `Automatic rollback of failed dream proposal ${proposal.id}`
+            );
+          } catch (compensationError) {
+            compensationErrors.push(`${edit.path}: ${errorMessage(compensationError)}`);
+          }
+        }
+        proposal.status = "failed";
+        proposal.error =
+          `Dream apply failed: ${errorMessage(error)}` +
+          (compensationErrors.length > 0
+            ? `; automatic rollback also failed: ${compensationErrors.join("; ")}`
+            : "; every completed edit was restored");
+        proposal.updatedAt = new Date().toISOString();
+        await this.save(proposal);
+        throw new Error(proposal.error);
+      }
+    });
   }
 
   async rollback(id: string): Promise<DreamProposal> {
-    const proposal = await this.require(id);
-    if (proposal.status !== "applied") throw new Error(`Dream proposal ${id} is not applied`);
-    const conflicts = await this.conflicts(proposal.edits, "appliedHash");
-    if (conflicts.length > 0) throw new Error(`Cannot rollback; live concepts changed after approval: ${conflicts.join(", ")}`);
-    for (const edit of [...proposal.edits].reverse()) {
-      await applyRaw(this.kb, edit.path, edit.before, `Rollback dream proposal ${proposal.id}`);
-    }
-    proposal.status = "rolled_back";
-    proposal.updatedAt = new Date().toISOString();
-    await this.save(proposal);
-    return proposal;
+    return withProposalLock(this.root, async () => {
+      const proposal = await this.require(id);
+      if (proposal.status !== "applied") throw new Error(`Dream proposal ${id} is not applied`);
+      const conflicts = await this.conflicts(proposal.edits, "appliedHash");
+      if (conflicts.length > 0) {
+        throw new Error(`Cannot rollback; live concepts changed after approval: ${conflicts.join(", ")}`);
+      }
+
+      const reverted: DreamEdit[] = [];
+      try {
+        for (const edit of [...proposal.edits].reverse()) {
+          // As above, compensate an edit whose file mutation succeeded but
+          // whose index/log/autocommit step failed afterward.
+          reverted.push(edit);
+          await applyRaw(this.kb, edit.path, edit.before, `Rollback dream proposal ${proposal.id}`);
+        }
+        proposal.status = "rolled_back";
+        proposal.updatedAt = new Date().toISOString();
+        delete proposal.error;
+        await this.save(proposal);
+        return proposal;
+      } catch (error) {
+        const compensationErrors: string[] = [];
+        for (const edit of [...reverted].reverse()) {
+          try {
+            await applyRaw(
+              this.kb,
+              edit.path,
+              edit.applied,
+              `Restore interrupted rollback of dream proposal ${proposal.id}`
+            );
+          } catch (compensationError) {
+            compensationErrors.push(`${edit.path}: ${errorMessage(compensationError)}`);
+          }
+        }
+        proposal.status = compensationErrors.length === 0 ? "applied" : "failed";
+        proposal.error =
+          `Dream rollback failed: ${errorMessage(error)}` +
+          (compensationErrors.length > 0
+            ? `; restoring the applied state also failed: ${compensationErrors.join("; ")}`
+            : "; the applied state was restored");
+        proposal.updatedAt = new Date().toISOString();
+        await this.save(proposal);
+        throw new Error(proposal.error);
+      }
+    });
   }
 
   private async conflicts(edits: DreamEdit[], key: "beforeHash" | "appliedHash"): Promise<string[]> {
@@ -181,54 +257,56 @@ export async function createDreamProposal(
   runner: typeof runMutation = runMutation,
 ): Promise<DreamProposalReport> {
   const store = new DreamProposalStore(kb);
-  const pending = (await store.list()).find((proposal) => proposal.status === "pending");
-  if (pending) {
-    return { ran: false, reason: `dream proposal ${pending.id} is already awaiting review` };
-  }
-  const stagingRoot = await fs.mkdtemp(path.join(os.tmpdir(), "librarian-dream-"));
-  try {
-    await fs.cp(kb.bundle.root, stagingRoot, {
-      recursive: true,
-      filter: (source) => {
-        const relative = path.relative(kb.bundle.root, source);
-        return relative !== ".librarian" && !relative.startsWith(`.librarian${path.sep}`)
-          && relative !== ".git" && !relative.startsWith(`.git${path.sep}`);
-      },
-    });
-    const staged = new StagedKnowledgeBase(stagingRoot);
-    const before = await snapshotConcepts(staged);
-    const outcome = await runner(staged, instruction, {
-      ...options,
-      cwd: stagingRoot,
-      bundleRoot: stagingRoot,
-      title: options.title ?? "Librarian dream proposal",
-    });
-    const normalized = mutationResult(outcome);
-    if (!normalized.ok) return { ran: false, reason: normalized.error };
-    if (normalized.traceId) {
-      const trace = await new TraceStore(stagingRoot).read(normalized.traceId);
-      if (trace) await new TraceStore(kb.bundle.root).save(trace);
+  return withProposalLock(store.root, async () => {
+    const pending = (await store.list()).find((proposal) => proposal.status === "pending");
+    if (pending) {
+      return { ran: false, reason: `dream proposal ${pending.id} is already awaiting review` };
     }
-    const after = await snapshotConcepts(staged);
-    const edits = buildEdits(before, after);
-    if (edits.length === 0) return { ran: false, reason: "dream agent proposed no concept changes" };
-    const now = new Date().toISOString();
-    const proposal: DreamProposal = {
-      id: `${Date.now()}-${randomUUID()}`,
-      status: "pending",
-      createdAt: now,
-      updatedAt: now,
-      instruction,
-      summary: normalized.summary,
-      ...(normalized.traceId ? { traceId: normalized.traceId } : {}),
-      ...(normalized.sessionId ? { sessionId: normalized.sessionId } : {}),
-      edits,
-    };
-    await store.save(proposal);
-    return { ran: true, proposal };
-  } finally {
-    await fs.rm(stagingRoot, { recursive: true, force: true });
-  }
+    const stagingRoot = await fs.mkdtemp(path.join(os.tmpdir(), "librarian-dream-"));
+    try {
+      await fs.cp(kb.bundle.root, stagingRoot, {
+        recursive: true,
+        filter: (source) => {
+          const relative = path.relative(kb.bundle.root, source);
+          return relative !== ".librarian" && !relative.startsWith(`.librarian${path.sep}`)
+            && relative !== ".git" && !relative.startsWith(`.git${path.sep}`);
+        },
+      });
+      const staged = new StagedKnowledgeBase(stagingRoot);
+      const before = await snapshotConcepts(staged);
+      const outcome = await runner(staged, instruction, {
+        ...options,
+        cwd: stagingRoot,
+        bundleRoot: stagingRoot,
+        title: options.title ?? "Librarian dream proposal",
+      });
+      const normalized = mutationResult(outcome);
+      if (!normalized.ok) return { ran: false, reason: normalized.error };
+      if (normalized.traceId) {
+        const trace = await new TraceStore(stagingRoot).read(normalized.traceId);
+        if (trace) await new TraceStore(kb.bundle.root).save(trace);
+      }
+      const after = await snapshotConcepts(staged);
+      const edits = buildEdits(before, after);
+      if (edits.length === 0) return { ran: false, reason: "dream agent proposed no concept changes" };
+      const now = new Date().toISOString();
+      const proposal: DreamProposal = {
+        id: `${Date.now()}-${randomUUID()}`,
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+        instruction,
+        summary: normalized.summary,
+        ...(normalized.traceId ? { traceId: normalized.traceId } : {}),
+        ...(normalized.sessionId ? { sessionId: normalized.sessionId } : {}),
+        edits,
+      };
+      await store.save(proposal);
+      return { ran: true, proposal };
+    } finally {
+      await fs.rm(stagingRoot, { recursive: true, force: true });
+    }
+  });
 }
 
 function mutationResult(outcome: MutationOutcome): { ok: true; summary: string; traceId?: string; sessionId?: string } | { ok: false; error: string } {
@@ -283,4 +361,26 @@ function hash(value: string | null): string | null {
 
 function assertId(id: string): void {
   if (!/^[A-Za-z0-9-]+$/.test(id)) throw new Error("Invalid dream proposal id");
+}
+
+async function withProposalLock<T>(root: string, operation: () => Promise<T>): Promise<T> {
+  const key = path.resolve(root);
+  const previous = proposalLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.catch(() => {}).then(() => gate);
+  proposalLocks.set(key, tail);
+  await previous.catch(() => {});
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (proposalLocks.get(key) === tail) proposalLocks.delete(key);
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

@@ -74,7 +74,7 @@ export interface QueryTrace extends TraceSummary {
 
 export interface AppConfig {
   model: string;
-  format: "hermes" | string;
+  format: "hermes" | "omp" | string;
   fallbackConfigured: boolean;
 }
 
@@ -92,8 +92,34 @@ export interface DreamProposal {
   updatedAt: string;
   summary: string;
   instruction: string;
+  traceId?: string;
+  sessionId?: string;
   edits: DreamEdit[];
   error?: string;
+}
+
+export interface DreamRunStatus {
+  trigger: "scheduled" | "manual";
+  startedAt: string;
+  finishedAt: string;
+  ran: boolean;
+  reason?: string;
+  summary?: string;
+  proposalId?: string;
+  editCount: number;
+  error?: string;
+}
+
+export interface DreamerStatus {
+  enabled: boolean;
+  running: boolean;
+  interval: string;
+  intervalMs: number | null;
+  startDelay: string;
+  startDelayMs: number | null;
+  nextRunAt?: string;
+  lastRun?: DreamRunStatus;
+  configurationError?: string;
 }
 
 const TOKEN_KEY = "librarian-token";
@@ -122,14 +148,25 @@ export class ApiError extends Error {
 
 async function get<T>(url: string): Promise<T> {
   const res = await fetch(url, { headers: authHeaders() });
-  if (!res.ok) throw new ApiError(res.status, `${res.status} ${await res.text()}`);
+  if (!res.ok) throw new ApiError(res.status, await responseError(res));
   return res.json();
 }
 
 async function post<T>(url: string): Promise<T> {
   const res = await fetch(url, { method: "POST", headers: authHeaders() });
-  if (!res.ok) throw new ApiError(res.status, `${res.status} ${await res.text()}`);
+  if (!res.ok) throw new ApiError(res.status, await responseError(res));
   return res.json();
+}
+
+async function responseError(response: Response): Promise<string> {
+  const body = await response.text();
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown };
+    if (typeof parsed.error === "string") return parsed.error;
+  } catch {
+    // Preserve a non-JSON response below.
+  }
+  return body.trim() || `${response.status} ${response.statusText}`;
 }
 
 export const api = {
@@ -143,6 +180,7 @@ export const api = {
   trace: (id: string) => get<QueryTrace>(`/api/trace?id=${encodeURIComponent(id)}`),
   config: () => get<AppConfig>("/api/config"),
   dreams: () => get<DreamProposal[]>("/api/dreams"),
+  dreamsStatus: () => get<DreamerStatus>("/api/dreams/status"),
   dream: (id: string) => get<DreamProposal>(`/api/dreams/${encodeURIComponent(id)}`),
   proposeDream: () => post<{ ran: boolean; reason?: string; proposal?: DreamProposal }>("/api/dreams/propose"),
   approveDream: (id: string) => post<DreamProposal>(`/api/dreams/${encodeURIComponent(id)}/approve`),

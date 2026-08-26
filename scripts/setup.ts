@@ -37,7 +37,16 @@ const hermes = Bun.which("hermes");
 
 const ompProfile = process.env.OMP_PROFILE?.trim() || profileName;
 const ompHome = expandHome(process.env.OMP_HOME || path.join(os.homedir(), ".omp"));
-const ompAgentDir = expandHome(process.env.OMP_AGENT_DIR || path.join(ompHome, "agent"));
+const configuredOmpAgentDir = expandHome(
+  process.env.OMP_AGENT_DIR || path.join(ompHome, "agent")
+);
+// OMP_AGENT_DIR is the public/default-profile registry. Older setup runs
+// could accidentally persist the caller's active named-profile directory
+// here, which hid Librarian from the default profile and contaminated the
+// delegated profile. Normalize that stale shape back to the public registry.
+const ompAgentDir = isNamedOmpProfileAgentDir(configuredOmpAgentDir, ompHome)
+  ? path.join(ompHome, "agent")
+  : configuredOmpAgentDir;
 const ompProfileAgentDir = expandHome(
   process.env.OMP_PROFILE_AGENT_DIR ||
     path.join(ompHome, "profiles", ompProfile, "agent")
@@ -49,6 +58,9 @@ if (backend === "hermes") {
   if (!existsSync(hermesPython)) fail(`Hermes Python was not found at ${hermesPython}`);
 } else if (!omp) {
   fail("omp is required for LIBRARIAN_AGENT_BACKEND=omp.");
+}
+if (backend === "omp" && path.resolve(ompAgentDir) === path.resolve(ompProfileAgentDir)) {
+  fail("The public OMP agent directory and isolated Librarian profile directory must differ.");
 }
 
 const detected = backend === "hermes" ? detectHermesModel() : { model: "", provider: "" };
@@ -94,7 +106,8 @@ const envValues: Record<string, string> = {
   QUERY_CACHE_TTL: process.env.QUERY_CACHE_TTL || "24h",
   HOT_MEMORY: process.env.HOT_MEMORY || "true",
   HOT_MEMORY_TTL: process.env.HOT_MEMORY_TTL || "1h",
-  DREAM_INTERVAL: process.env.DREAM_INTERVAL || "",
+  DREAM_INTERVAL: process.env.DREAM_INTERVAL || "6h",
+  DREAM_START_DELAY: process.env.DREAM_START_DELAY || "10m",
   DREAM_INSIGHTS: process.env.DREAM_INSIGHTS || "true",
   PORT: process.env.PORT || "3800",
   AUTH_TOKEN: process.env.AUTH_TOKEN || "",
@@ -164,7 +177,7 @@ if (backend === "hermes") {
   console.log(`\nRegistering public Librarian tools in ${publicMcpPath}...`);
   updateOmpMcp(publicMcpPath, "librarian", bun, [librarianEntry], publicEnv);
   console.log(`Registering private OKF operations in OMP profile '${ompProfile}'...`);
-  updateOmpMcp(privateMcpPath, "librarian-okf", bun, [okfEntry], privateEnv);
+  updateOmpMcp(privateMcpPath, "librarian-okf", bun, [okfEntry], privateEnv, true);
 }
 
 console.log(`
@@ -243,7 +256,8 @@ function updateOmpMcp(
   name: string,
   command: string,
   args: string[],
-  env: Record<string, string>
+  env: Record<string, string>,
+  exclusive = false
 ): void {
   let config: McpConfig = {};
   if (existsSync(file)) {
@@ -254,7 +268,15 @@ function updateOmpMcp(
     }
   }
   config.$schema ||= "https://raw.githubusercontent.com/can1357/oh-my-pi/main/packages/coding-agent/src/config/mcp-schema.json";
-  config.mcpServers = isRecord(config.mcpServers) ? config.mcpServers : {};
+  // The delegated OMP profile is a capability boundary, not a clone of the
+  // user's normal profile. Converge it to one private OKF server on every
+  // setup run so stale/public MCPs cannot recurse into Librarian or broaden a
+  // dream worker's tools. Public config remains a merge and is never pruned.
+  config.mcpServers = exclusive
+    ? {}
+    : isRecord(config.mcpServers)
+      ? config.mcpServers
+      : {};
   config.mcpServers[name] = {
     type: "stdio",
     command,
@@ -303,6 +325,14 @@ function expandHome(value: string): string {
     return path.join(os.homedir(), value.slice(2));
   }
   return path.resolve(value);
+}
+
+function isNamedOmpProfileAgentDir(candidate: string, ompHome: string): boolean {
+  const relative = path.relative(path.join(ompHome, "profiles"), candidate);
+  return relative !== "" &&
+    !relative.startsWith("..") &&
+    !path.isAbsolute(relative) &&
+    path.basename(candidate) === "agent";
 }
 
 function escapeRegex(value: string): string {

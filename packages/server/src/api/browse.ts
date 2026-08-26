@@ -78,9 +78,12 @@ export function browseRouter(kb: KnowledgeBase): Router {
   });
 
   router.get("/config", (_req, res) => {
+    const backend = process.env.LIBRARIAN_AGENT_BACKEND === "omp" ? "omp" : "hermes";
     res.json({
-      model: process.env.HERMES_MODEL || "profile default",
-      format: "hermes",
+      model:
+        (backend === "omp" ? process.env.OMP_MODEL : process.env.HERMES_MODEL) ||
+        "profile default",
+      format: backend,
       fallbackConfigured: false,
     });
   });

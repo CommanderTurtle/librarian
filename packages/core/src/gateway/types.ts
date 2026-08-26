@@ -20,10 +20,17 @@ export interface AgentRunOptions {
   timeoutMs?: number;
 }
 
+export interface AgentUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export interface AgentRunResult {
   answer: string;
   sessionId: string;
   toolEvents: AgentToolEvent[];
   modelLabel: string;
   backend: AgentBackend;
+  /** Per-run usage when the selected RPC protocol reports it. */
+  usage?: AgentUsage;
 }

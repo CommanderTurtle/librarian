@@ -7,15 +7,25 @@
  * intentionally not registered on the model-facing MCP server.
  */
 import express, { type RequestHandler, type Router } from "express";
-import { DreamProposalStore, runDream, type KnowledgeBase } from "@understory/core";
+import { DreamProposalStore, type KnowledgeBase } from "@understory/core";
+import type { Dreamer } from "../dreamer.js";
 
-export function dreamsRouter(kb: KnowledgeBase, approvalProtected: boolean): Router {
+export function dreamsRouter(
+  kb: KnowledgeBase,
+  approvalProtected: boolean,
+  dreamer: Dreamer
+): Router {
   const router = express.Router();
   const store = new DreamProposalStore(kb);
   const requireHumanApproval = approvalGuard(approvalProtected);
 
   router.get("/dreams", async (_req, res) => {
     res.json(await store.list());
+  });
+
+  // Keep this route before /dreams/:id so "status" cannot be parsed as an id.
+  router.get("/dreams/status", (_req, res) => {
+    res.json(dreamer.status());
   });
 
   router.get("/dreams/:id", async (req, res) => {
@@ -26,7 +36,7 @@ export function dreamsRouter(kb: KnowledgeBase, approvalProtected: boolean): Rou
 
   router.post("/dreams/propose", requireHumanApproval, async (_req, res) => {
     try {
-      const report = await runDream(kb);
+      const report = await dreamer.runNow("manual");
       res.status(report.ran ? 201 : 200).json(report);
     } catch (error) {
       res.status(500).json({ error: message(error) });

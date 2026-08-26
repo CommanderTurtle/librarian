@@ -91,7 +91,14 @@ export async function runQuery(
     );
     modelChain = [result.modelLabel];
     recordToolEvents(recorder, result.toolEvents);
-    const trace = recorder.finalize("query", question, result.answer, "success", modelChain);
+    const trace = recorder.finalize(
+      "query",
+      question,
+      result.answer,
+      "success",
+      modelChain,
+      result.usage
+    );
     await traceStore(kb).save(trace);
     return {
       answer: result.answer,
@@ -131,7 +138,8 @@ export async function runMutation(
       instruction,
       result.answer,
       "success",
-      modelChain
+      modelChain,
+      result.usage
     );
     await traceStore(kb).save(trace);
     return {
@@ -195,7 +203,14 @@ export async function runChat(
     recordHotChanges(filesChanged, after);
     let traceId: string | undefined;
     if (recorder.steps.length > 0) {
-      const trace = recorder.finalize("chat", input, result.answer, "success", modelChain);
+      const trace = recorder.finalize(
+        "chat",
+        input,
+        result.answer,
+        "success",
+        modelChain,
+        result.usage
+      );
       await traceStore(kb).save(trace);
       traceId = trace.id;
     }

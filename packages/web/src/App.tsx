@@ -1,5 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, setAuthToken, type AppConfig, type Concept, type ConformanceReport, type LogEntry, type SearchHit, type TreeNode } from "./api";
+import {
+  api,
+  ApiError,
+  getAuthToken,
+  setAuthToken,
+  type AppConfig,
+  type Concept,
+  type ConformanceReport,
+  type LogEntry,
+  type SearchHit,
+  type TreeNode,
+} from "./api";
 import { Tree } from "./components/Tree";
 import { ConceptView } from "./components/ConceptView";
 import { LogView } from "./components/LogView";
@@ -27,6 +38,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [needsToken, setNeedsToken] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
+  const [hasStoredToken, setHasStoredToken] = useState(() => Boolean(getAuthToken()));
 
   const refresh = useCallback(() => {
     api
@@ -34,18 +46,23 @@ export default function App() {
       .then((t) => {
         setTree(t);
         setNeedsToken(false);
+        setError(null);
       })
       .catch((e) => {
-        if (e instanceof ApiError && e.status === 401) setNeedsToken(true);
+        if (e instanceof ApiError && e.status === 401) {
+          setTree(null);
+          setConfig(null);
+          setNeedsToken(true);
+        }
         else setError(String(e));
       });
     api.validate().then(setReport).catch(() => {});
     api.log().then(setLog).catch(() => {});
+    api.config().then(setConfig).catch(() => {});
   }, []);
 
   useEffect(() => {
     refresh();
-    api.config().then(setConfig).catch(() => {});
   }, [refresh]);
 
   useEffect(() => {
@@ -81,6 +98,21 @@ export default function App() {
     setQuery("");
   }, []);
 
+  const deauthorize = useCallback(() => {
+    setAuthToken("");
+    setHasStoredToken(false);
+    setTree(null);
+    setConfig(null);
+    setReport(null);
+    setLog([]);
+    setConcept(null);
+    setHits(null);
+    setView({ kind: "empty" });
+    setError(null);
+    setNeedsToken(true);
+    refresh();
+  }, [refresh]);
+
   if (needsToken) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -88,9 +120,9 @@ export default function App() {
           onSubmit={(e) => {
             e.preventDefault();
             setAuthToken(tokenInput.trim());
+            setHasStoredToken(Boolean(tokenInput.trim()));
             setTokenInput("");
             refresh();
-            api.config().then(setConfig).catch(() => {});
           }}
           className="w-80 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5"
         >
@@ -108,10 +140,24 @@ export default function App() {
           />
           <button
             type="submit"
+            disabled={!tokenInput.trim()}
             className="mt-3 w-full rounded-lg bg-cyan-700 px-3 py-2 text-sm font-medium text-white hover:bg-cyan-600"
           >
             Unlock
           </button>
+          {hasStoredToken && (
+            <button
+              type="button"
+              onClick={() => {
+                setAuthToken("");
+                setHasStoredToken(false);
+                setTokenInput("");
+              }}
+              className="mt-2 w-full px-3 py-1 text-xs text-zinc-500 hover:text-zinc-300"
+            >
+              Forget stored token
+            </button>
+          )}
         </form>
       </div>
     );
@@ -124,18 +170,29 @@ export default function App() {
         <div className="border-b border-zinc-800 p-3">
           <div className="flex items-center gap-2">
             <h1 className="text-sm font-bold tracking-wide text-cyan-300">librarian</h1>
-            {report && (
-              <span
-                title={`${report.conceptCount} concepts, ${report.issues.length} issues`}
-                className={`ml-auto rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                  report.conformant
-                    ? "bg-emerald-900/60 text-emerald-300"
-                    : "bg-red-900/60 text-red-300"
-                }`}
-              >
-                {report.conformant ? "conformant" : "non-conformant"}
-              </span>
-            )}
+            <div className="ml-auto flex items-center gap-1.5">
+              {report && (
+                <span
+                  title={`${report.conceptCount} concepts, ${report.issues.length} issues`}
+                  className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                    report.conformant
+                      ? "bg-emerald-900/60 text-emerald-300"
+                      : "bg-red-900/60 text-red-300"
+                  }`}
+                >
+                  {report.conformant ? "conformant" : "non-conformant"}
+                </span>
+              )}
+              {hasStoredToken && (
+                <button
+                  onClick={deauthorize}
+                  title="Forget this browser's bearer token and lock the UI"
+                  className="rounded px-1.5 py-0.5 text-[10px] text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+                >
+                  Deauthorize
+                </button>
+              )}
+            </div>
           </div>
           <input
             value={query}
