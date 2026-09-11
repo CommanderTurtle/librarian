@@ -13,5 +13,7 @@ bun_bin="$(command -v bun || true)"
 git pull --rebase --autostash
 "$bun_bin" install --frozen-lockfile
 "$bun_bin" run build
+"$bun_bin" run integrate
 
-printf 'Librarian updated. Restart its optional HTTP service if it is running.\n'
+printf 'Librarian updated and its Hermes/OMP registrations were reconciled.\n'
+printf 'Restart its optional HTTP service if it is running.\n'

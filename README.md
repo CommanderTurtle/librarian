@@ -101,14 +101,22 @@ bun run setup
 ```
 
 Setup asks for the delegated backend, OKF bundle, model, and provider, then
-builds the Bun workspace and writes resolved paths to `.env`.
+builds the Bun workspace, writes resolved paths to `.env`, and reconciles both
+installed harnesses. The backend choice controls only the private delegated
+worker; the public five-tool Librarian MCP is available in every ordinary
+Hermes and OMP profile.
 
 ### Hermes backend (default)
 
 Setup clones the current Hermes profile into an isolated `librarian` profile,
-registers `librarian-okf` only in that child profile, and registers the public
-`librarian` MCP in the default profile. This prevents recursive `memory_*`
-calls while preserving Hermes as the sole agent loop.
+converges that worker to the `librarian-okf` MCP alone, and registers the public
+`librarian` MCP in the default profile plus every ordinary named profile. It
+also registers the public MCP in ordinary OMP profiles when OMP is installed.
+Each ordinary profile receives a small first-party `librarian` routing skill
+that advertises the five public tools. Private worker and auditor/scout profiles
+receive neither that skill nor the public MCP.
+This prevents recursive `memory_*` calls while preserving Hermes as the sole
+agent loop.
 
 Rerunning setup refreshes both registrations without recreating the profile.
 Non-default installations can set `HERMES_HOME`, `HERMES_PROFILE_HOME`, and
@@ -120,15 +128,16 @@ Set `LIBRARIAN_AGENT_BACKEND=omp` before setup or select `omp` at the prompt.
 Setup follows OMP's native
 [profile-scoped MCP configuration](https://github.com/can1357/oh-my-pi/blob/main/docs/mcp-config.md):
 
-- the public `librarian` MCP is merged into `~/.omp/agent/mcp.json`;
+- the public `librarian` MCP is merged into `~/.omp/agent/mcp.json` and every
+  named profile already using the ordinary external-tool stack;
 - the dedicated `~/.omp/profiles/librarian/agent/mcp.json` is converged to the
   private `librarian-okf` server only;
 - delegated workers launch as `omp --profile librarian --mode rpc --no-session`.
 
 The two profile files are deliberately separate. Rerunning setup removes stale
-MCP registrations from the dedicated worker profile but never prunes the normal
-OMP profile. The worker therefore cannot discover its own public `memory_*`
-server or recurse back into Librarian. Setup also repairs an old
+MCP registrations from isolated profiles but never prunes unrelated servers
+from a normal profile. The worker therefore cannot discover its own public
+`memory_*` server or recurse back into Librarian. Setup also repairs an old
 `OMP_AGENT_DIR` value that accidentally points into a named profile. Override
 `OMP_HOME`, `OMP_AGENT_DIR`,
 `OMP_PROFILE_AGENT_DIR`, `OMP_PROFILE`, or `OMP_COMMAND` for a non-default
@@ -161,10 +170,9 @@ to traces when the selected harness reports it.
 ```
 
 The update path rebases the Librarian repository with an autostash, performs a
-frozen Bun install, and rebuilds every package. Run `bun run setup` once after
-installing this dreaming update so the scheduler defaults and the exact private
-MCP boundary are written. Later reruns are needed only when paths, backend,
-profile, model, or MCP registrations change.
+frozen Bun install, rebuilds every package, and runs the non-interactive
+`bun run integrate` path. It can be rerun after harness or profile updates; the
+same script repairs public registrations and the selected private boundary.
 
 ## Development
 
@@ -191,7 +199,7 @@ Setup and update scripts never pull Understory implicitly.
 ## Architecture
 
 ```text
-Hermes default profile                    OMP default profile
+Hermes ordinary profiles                  OMP ordinary profiles
   └─ librarian MCP (memory_*)               └─ librarian MCP (memory_*)
        └─ fresh TUI-gateway process               └─ fresh OMP RPC process
             └─ isolated librarian profile              └─ isolated librarian profile

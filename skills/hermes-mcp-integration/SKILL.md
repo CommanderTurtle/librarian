@@ -7,8 +7,9 @@ description: Build and maintain local Bun MCP servers that delegate agentic work
 
 Use native Hermes integration boundaries:
 
-- Bun runs TypeScript and JavaScript packages. Do not require Node, npm, pnpm,
-  npx, or transient package runners.
+- Bun runs TypeScript and JavaScript packages. Sandwich's `npx` command is a
+  Bun-backed compatibility shim; Librarian still uses versioned local
+  artifacts directly and needs no transient package runner.
 - Hermes MCP servers use local, versioned build artifacts over stdio.
 - Agentic calls use a fresh Hermes TUI-gateway JSON-RPC process, not an
   OpenAI-compatible inference call and not a shell-scraped chat command.
@@ -47,7 +48,7 @@ bun run setup
 Run `bun run setup` after a profile path, model, or MCP registration changes.
 Ordinary source updates need only a frozen Bun install and build.
 
-The default profile should register the public local artifact:
+Every ordinary Hermes and OMP profile should register the public local artifact:
 
 ```text
 $HOME/.bun/bin/bun \
@@ -66,8 +67,9 @@ HERMES_HOME="$HOME/.hermes/profiles/librarian" hermes mcp list
 
 Confirm that:
 
-1. the default profile exposes exactly five public Librarian tools;
-2. the child profile exposes deterministic `librarian-okf` operations;
+1. ordinary profiles expose exactly five public Librarian tools;
+2. the selected child profile exposes only deterministic `librarian-okf`
+   operations;
 3. both profiles use local paths, never `npx`, `bunx`, or remote package specs;
 4. a completed call closes its JSON-RPC child process cleanly.
 

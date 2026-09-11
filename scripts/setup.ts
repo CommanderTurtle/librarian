@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline/promises";
@@ -15,7 +15,9 @@ type McpConfig = {
 
 const repoRoot = path.resolve(import.meta.dir, "..");
 const defaultBundle = path.join(repoRoot, "data");
-const interactive = stdin.isTTY && stdout.isTTY;
+const routingSkillSource = path.join(repoRoot, "skills", "librarian", "SKILL.md");
+const integrateOnly = process.argv.includes("--integrate-only");
+const interactive = stdin.isTTY && stdout.isTTY && !integrateOnly;
 const prompt = interactive ? readline.createInterface({ input: stdin, output: stdout }) : null;
 const bun = Bun.which("bun");
 
@@ -79,9 +81,11 @@ prompt?.close();
 
 mkdirSync(bundleRoot, { recursive: true });
 
-console.log("\nInstalling and building with Bun...");
-run(bun, ["install", "--frozen-lockfile"]);
-run(bun, ["run", "build"]);
+if (!integrateOnly) {
+  console.log("\nInstalling and building with Bun...");
+  run(bun, ["install", "--frozen-lockfile"]);
+  run(bun, ["run", "build"]);
+}
 
 const envValues: Record<string, string> = {
   BUNDLE_ROOT: bundleRoot,
@@ -169,16 +173,41 @@ if (backend === "hermes") {
 
   console.log("\nRegistering private OKF operations with the Librarian Hermes profile...");
   replaceHermesMcp("librarian-okf", bun, [okfEntry], privateEnv, profileHome);
-  console.log("Registering high-level Librarian tools with the default Hermes profile...");
-  replaceHermesMcp("librarian", bun, [librarianEntry], publicEnv);
+  convergeHermesPrivateProfile(profileHome, "librarian-okf");
+  removeManagedRoutingSkill(profileHome, "hermes");
+  removeOmpMcp(path.join(ompProfileAgentDir, "mcp.json"), ["librarian", "librarian-okf"]);
+  removeManagedRoutingSkill(ompProfileAgentDir, "omp");
 } else {
-  const publicMcpPath = path.join(ompAgentDir, "mcp.json");
   const privateMcpPath = path.join(ompProfileAgentDir, "mcp.json");
-  console.log(`\nRegistering public Librarian tools in ${publicMcpPath}...`);
-  updateOmpMcp(publicMcpPath, "librarian", bun, [librarianEntry], publicEnv);
-  console.log(`Registering private OKF operations in OMP profile '${ompProfile}'...`);
+  console.log(`\nRegistering private OKF operations in OMP profile '${ompProfile}'...`);
   updateOmpMcp(privateMcpPath, "librarian-okf", bun, [okfEntry], privateEnv, true);
+  removeManagedRoutingSkill(ompProfileAgentDir, "omp");
+  removeHermesMcp("librarian", profileHome);
+  removeHermesMcp("librarian-okf", profileHome);
+  removeManagedRoutingSkill(profileHome, "hermes");
 }
+
+const publicHermesProfiles = hermes ? hermesPublicProfiles() : [];
+for (const profile of publicHermesProfiles) {
+  console.log(`Registering public Librarian tools with Hermes profile '${profile.name}'...`);
+  replaceHermesMcp("librarian", bun, [librarianEntry], publicEnv, profile.directory);
+  installRoutingSkill(profile.directory, "hermes");
+}
+
+const publicOmpAgents = omp ? ompPublicAgentDirectories() : [];
+for (const directory of publicOmpAgents) {
+  const publicMcpPath = path.join(directory, "mcp.json");
+  console.log(`Registering public Librarian tools in ${publicMcpPath}...`);
+  updateOmpMcp(publicMcpPath, "librarian", bun, [librarianEntry], publicEnv);
+  installRoutingSkill(directory, "omp");
+}
+for (const directory of ompIsolatedAgentDirectories()) {
+  if (backend === "omp" && path.resolve(directory) === path.resolve(ompProfileAgentDir)) continue;
+  removeOmpMcp(path.join(directory, "mcp.json"), ["librarian", "librarian-okf"]);
+  removeManagedRoutingSkill(directory, "omp");
+}
+
+verifyIntegration(backend, publicHermesProfiles, publicOmpAgents);
 
 console.log(`
 Librarian is ready.
@@ -186,13 +215,15 @@ Librarian is ready.
   Repository:       ${repoRoot}
   Knowledge bundle:${bundleRoot}
   Agent backend:    ${backend}
-  ${backend === "hermes" ? `Hermes profile:  ${profileHome}` : `OMP profile:     ${ompProfile}\n  Public MCP:      ${path.join(ompAgentDir, "mcp.json")}\n  Private MCP:     ${path.join(ompProfileAgentDir, "mcp.json")}`}
+  Private worker:  ${backend === "hermes" ? profileHome : ompProfileAgentDir}
+  Hermes publics:  ${publicHermesProfiles.length}
+  OMP publics:     ${publicOmpAgents.length}
   Model:            ${model || "(profile default)"}
   Provider:         ${provider || "(profile default)"}
 
-The active ${backend === "hermes" ? "Hermes" : "OMP"} profile now exposes memory_query,
-memory_add, memory_update, memory_status, and memory_maintain. Each deep agentic
-call uses a fresh isolated ${backend === "hermes" ? "TUI-gateway JSON-RPC" : "OMP RPC"} session.
+Every ordinary installed profile now exposes memory_query, memory_add,
+memory_update, memory_status, and memory_maintain. Each deep agentic call uses
+a fresh isolated ${backend === "hermes" ? "TUI-gateway JSON-RPC" : "OMP RPC"} session.
 `);
 
 async function choose(label: string, fallback: string): Promise<string> {
@@ -220,6 +251,55 @@ function detectHermesModel(): { model: string; provider: string } {
 function profileExists(name: string): boolean {
   const result = spawnSync(hermes!, ["profile", "show", name], { encoding: "utf8" });
   return result.status === 0;
+}
+
+type HermesProfile = { name: string; directory: string };
+
+function hermesMcpNames(directory: string): string[] {
+  if (!hermes || !existsSync(path.join(directory, "config.yaml"))) return [];
+  const result = spawnSync(hermes, ["mcp", "list"], {
+    env: { ...process.env, HERMES_HOME: directory },
+    encoding: "utf8",
+  });
+  if (result.status !== 0) fail(`Could not inspect Hermes MCPs in ${directory}`);
+  const names = new Set<string>();
+  for (const line of `${result.stdout || ""}\n${result.stderr || ""}`.split(/\r?\n/)) {
+    const match = line.match(/^\s{2}([A-Za-z0-9][A-Za-z0-9._-]*)\s{2,}/);
+    if (match && match[1] !== "Name") names.add(match[1]);
+  }
+  return [...names].sort();
+}
+
+function hermesPublicProfiles(): HermesProfile[] {
+  const profiles: HermesProfile[] = [{ name: "default", directory: hermesHome }];
+  const profilesRoot = path.join(hermesHome, "profiles");
+  if (existsSync(profilesRoot)) {
+    for (const entry of readdirSync(profilesRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const directory = path.join(profilesRoot, entry.name);
+      if (!existsSync(path.join(directory, "config.yaml"))) continue;
+      if (path.resolve(directory) === path.resolve(profileHome)) continue;
+      if (hermesMcpNames(directory).includes("librarian-okf")) continue;
+      profiles.push({ name: entry.name, directory });
+    }
+  }
+  return profiles;
+}
+
+function removeHermesMcp(name: string, directory: string): void {
+  if (!hermes || !hermesMcpNames(directory).includes(name)) return;
+  run(
+    hermes,
+    ["mcp", "remove", name],
+    { ...process.env, HERMES_HOME: directory },
+    true
+  );
+}
+
+function convergeHermesPrivateProfile(directory: string, keep: string): void {
+  for (const name of hermesMcpNames(directory)) {
+    if (name !== keep) removeHermesMcp(name, directory);
+  }
 }
 
 function replaceHermesMcp(
@@ -251,6 +331,157 @@ function replaceHermesMcp(
   }
 }
 
+function allOmpProfileAgentDirectories(): string[] {
+  const profilesRoot = path.join(ompHome, "profiles");
+  if (!existsSync(profilesRoot)) return [];
+  return readdirSync(profilesRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(profilesRoot, entry.name, "agent"))
+    .filter((directory) => existsSync(path.join(directory, "config.yml")));
+}
+
+function ompPublicAgentDirectories(): string[] {
+  const directories = [ompAgentDir];
+  const normalMarkers = new Set([
+    "retrieval",
+    "localflame",
+    "camofox",
+    "camofox-mcp",
+    "context-mode",
+    "codebase-memory-mcp",
+  ]);
+  for (const directory of allOmpProfileAgentDirectories()) {
+    if (path.resolve(directory) === path.resolve(ompProfileAgentDir)) continue;
+    const mcpPath = path.join(directory, "mcp.json");
+    if (!existsSync(mcpPath)) continue;
+    const config = readOmpMcp(mcpPath);
+    const names = Object.keys(config.mcpServers || {});
+    if (names.some((name) => normalMarkers.has(name))) directories.push(directory);
+  }
+  return [...new Set(directories.map((directory) => path.resolve(directory)))];
+}
+
+function ompIsolatedAgentDirectories(): string[] {
+  const publicDirectories = new Set(
+    ompPublicAgentDirectories().map((directory) => path.resolve(directory))
+  );
+  return allOmpProfileAgentDirectories().filter(
+    (directory) => !publicDirectories.has(path.resolve(directory))
+  );
+}
+
+function readOmpMcp(file: string): McpConfig {
+  if (!existsSync(file)) return {};
+  try {
+    const config = JSON.parse(readFileSync(file, "utf8")) as McpConfig;
+    config.mcpServers = isRecord(config.mcpServers) ? config.mcpServers : {};
+    return config;
+  } catch (error) {
+    fail(`Cannot read malformed OMP MCP config ${file}: ${String(error)}`);
+  }
+}
+
+function removeOmpMcp(file: string, names: string[]): void {
+  if (!existsSync(file)) return;
+  const config = readOmpMcp(file);
+  let changed = false;
+  for (const name of names) {
+    if (config.mcpServers && Object.hasOwn(config.mcpServers, name)) {
+      delete config.mcpServers[name];
+      changed = true;
+    }
+  }
+  if (changed) writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+}
+
+function routingSkillTarget(directory: string, harness: Backend): string {
+  return harness === "hermes"
+    ? path.join(directory, "skills", "research", "librarian")
+    : path.join(directory, "skills", "librarian");
+}
+
+function installRoutingSkill(directory: string, harness: Backend): void {
+  if (!existsSync(routingSkillSource)) {
+    fail(`Librarian routing skill is missing: ${routingSkillSource}`);
+  }
+  const target = routingSkillTarget(directory, harness);
+  mkdirSync(target, { recursive: true });
+  const content = readFileSync(routingSkillSource, "utf8");
+  const destination = path.join(target, "SKILL.md");
+  if (!existsSync(destination) || readFileSync(destination, "utf8") !== content) {
+    writeFileSync(destination, content, "utf8");
+  }
+}
+
+function removeManagedRoutingSkill(directory: string, harness: Backend): void {
+  if (!existsSync(routingSkillSource)) return;
+  const target = routingSkillTarget(directory, harness);
+  const destination = path.join(target, "SKILL.md");
+  if (!existsSync(destination)) return;
+  if (readFileSync(destination, "utf8") !== readFileSync(routingSkillSource, "utf8")) {
+    console.log(`Retaining modified Librarian routing skill at ${destination}`);
+    return;
+  }
+  rmSync(target, { recursive: true, force: true });
+}
+
+function verifyIntegration(
+  selectedBackend: Backend,
+  publicHermes: HermesProfile[],
+  publicOmp: string[]
+): void {
+  for (const entry of [okfEntry, librarianEntry]) {
+    if (!existsSync(entry)) fail(`Built MCP entrypoint is missing: ${entry}`);
+  }
+  for (const profile of publicHermes) {
+    const names = hermesMcpNames(profile.directory);
+    if (!names.includes("librarian") || names.includes("librarian-okf")) {
+      fail(`Hermes public profile '${profile.name}' has an invalid Librarian boundary`);
+    }
+    verifyRoutingSkill(profile.directory, "hermes");
+  }
+  for (const directory of publicOmp) {
+    const names = Object.keys(readOmpMcp(path.join(directory, "mcp.json")).mcpServers || {});
+    if (!names.includes("librarian") || names.includes("librarian-okf")) {
+      fail(`OMP public profile at ${directory} has an invalid Librarian boundary`);
+    }
+    verifyRoutingSkill(directory, "omp");
+  }
+  if (selectedBackend === "hermes") {
+    const privateNames = hermesMcpNames(profileHome);
+    if (privateNames.length !== 1 || privateNames[0] !== "librarian-okf") {
+      fail("Hermes Librarian worker must expose only librarian-okf");
+    }
+    verifyNoRoutingSkill(profileHome, "hermes");
+  } else {
+    const privateNames = Object.keys(
+      readOmpMcp(path.join(ompProfileAgentDir, "mcp.json")).mcpServers || {}
+    ).sort();
+    if (privateNames.length !== 1 || privateNames[0] !== "librarian-okf") {
+      fail("OMP Librarian worker must expose only librarian-okf");
+    }
+    verifyNoRoutingSkill(ompProfileAgentDir, "omp");
+  }
+  console.log(
+    `Verified Librarian integration: ${publicHermes.length} Hermes public profiles, ` +
+      `${publicOmp.length} OMP public profiles, one ${selectedBackend} private worker.`
+  );
+}
+
+function verifyRoutingSkill(directory: string, harness: Backend): void {
+  const destination = path.join(routingSkillTarget(directory, harness), "SKILL.md");
+  if (!existsSync(destination)
+      || readFileSync(destination, "utf8") !== readFileSync(routingSkillSource, "utf8")) {
+    fail(`${harness} public profile is missing the managed Librarian routing skill: ${directory}`);
+  }
+}
+
+function verifyNoRoutingSkill(directory: string, harness: Backend): void {
+  if (existsSync(path.join(routingSkillTarget(directory, harness), "SKILL.md"))) {
+    fail(`${harness} Librarian worker must not expose the public routing skill: ${directory}`);
+  }
+}
+
 function updateOmpMcp(
   file: string,
   name: string,
@@ -259,14 +490,7 @@ function updateOmpMcp(
   env: Record<string, string>,
   exclusive = false
 ): void {
-  let config: McpConfig = {};
-  if (existsSync(file)) {
-    try {
-      config = JSON.parse(readFileSync(file, "utf8")) as McpConfig;
-    } catch (error) {
-      fail(`Cannot update malformed OMP MCP config ${file}: ${String(error)}`);
-    }
-  }
+  const config = readOmpMcp(file);
   config.$schema ||= "https://raw.githubusercontent.com/can1357/oh-my-pi/main/packages/coding-agent/src/config/mcp-schema.json";
   // The delegated OMP profile is a capability boundary, not a clone of the
   // user's normal profile. Converge it to one private OKF server on every
