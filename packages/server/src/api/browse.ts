@@ -88,5 +88,17 @@ export function browseRouter(kb: KnowledgeBase): Router {
     });
   });
 
+  router.get("/bundle/export", async (_req, res) => {
+    const paths = await kb.bundle.listConceptPaths();
+    const concepts = await Promise.all(
+      paths.map(async (path) => ({ path, raw: (await kb.readConcept(path)).raw }))
+    );
+    res.json({
+      schemaVersion: "librarian.bundle.v1",
+      exportedAt: new Date().toISOString(),
+      concepts,
+    });
+  });
+
   return router;
 }

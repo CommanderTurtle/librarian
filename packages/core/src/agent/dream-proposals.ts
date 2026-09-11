@@ -309,6 +309,47 @@ export async function createDreamProposal(
   });
 }
 
+/**
+ * Create a reviewable proposal from a fully materialized concept snapshot.
+ *
+ * This is the deterministic companion to `createDreamProposal`: callers do
+ * their own parsing and validation, then hand over the desired post-apply
+ * snapshot. The same pending-proposal gate, hashes, conflict detection,
+ * compensation, and rollback path are used as agent-authored dreams.
+ */
+export async function createSnapshotProposal(
+  kb: KnowledgeBase,
+  instruction: string,
+  summary: string,
+  imported: Map<string, string>,
+  strategy: "merge" | "replace" = "replace",
+): Promise<DreamProposalReport> {
+  const store = new DreamProposalStore(kb);
+  return withProposalLock(store.root, async () => {
+    const pending = (await store.list()).find((proposal) => proposal.status === "pending");
+    if (pending) {
+      return { ran: false, reason: `dream proposal ${pending.id} is already awaiting review` };
+    }
+    const before = await snapshotConcepts(kb);
+    const after = strategy === "merge" ? new Map(before) : new Map<string, string>();
+    for (const [conceptPath, raw] of imported) after.set(conceptPath, raw);
+    const edits = buildEdits(before, after);
+    if (edits.length === 0) return { ran: false, reason: "import matches the live bundle" };
+    const now = new Date().toISOString();
+    const proposal: DreamProposal = {
+      id: `${Date.now()}-${randomUUID()}`,
+      status: "pending",
+      createdAt: now,
+      updatedAt: now,
+      instruction,
+      summary,
+      edits,
+    };
+    await store.save(proposal);
+    return { ran: true, proposal };
+  });
+}
+
 function mutationResult(outcome: MutationOutcome): { ok: true; summary: string; traceId?: string; sessionId?: string } | { ok: false; error: string } {
   if (outcome.ok) return {
     ok: true,

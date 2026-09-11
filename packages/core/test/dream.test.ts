@@ -4,7 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { KnowledgeBase } from "../src/okf/index.js";
 import { duplicateCandidates, oversizedConcepts, runDream } from "../src/agent/dream.js";
-import { DreamProposalStore } from "../src/agent/dream-proposals.js";
+import {
+  createSnapshotProposal,
+  DreamProposalStore,
+} from "../src/agent/dream-proposals.js";
 
 let root: string;
 let kb: KnowledgeBase;
@@ -139,5 +142,87 @@ describe("oversizedConcepts", () => {
     expect(instruction).toContain("OVERSIZED CONCEPTS");
     expect(instruction).toContain("/people/fat.md");
     expect(instruction).toContain("NEVER delete or rename the original path");
+  });
+});
+
+describe("createSnapshotProposal", () => {
+  it("uses the ordinary review, conflict, apply, and rollback lifecycle", async () => {
+    await kb.writeConcept(
+      "/existing.md",
+      { type: "Fact", title: "Existing", description: "before" },
+      "before",
+      "seed",
+    );
+    const desired = new Map<string, string>([
+      [
+        "/existing.md",
+        "---\ntype: Fact\ntitle: Existing\ndescription: after\n---\nafter\n",
+      ],
+      [
+        "/imported.md",
+        "---\ntype: Fact\ntitle: Imported\ndescription: new\n---\nnew\n",
+      ],
+    ]);
+
+    const report = await createSnapshotProposal(
+      kb,
+      "Import a portable bundle",
+      "Import two concepts",
+      desired,
+    );
+    expect(report.ran).toBe(true);
+    expect(report.proposal?.edits.map((edit) => [edit.path, edit.action])).toEqual([
+      ["/existing.md", "update"],
+      ["/imported.md", "create"],
+    ]);
+    expect((await kb.readConcept("/existing.md")).body.trim()).toBe("before");
+
+    const store = new DreamProposalStore(kb);
+    await store.apply(report.proposal!.id);
+    expect((await kb.readConcept("/existing.md")).body.trim()).toBe("after");
+    expect((await kb.readConcept("/imported.md")).body.trim()).toBe("new");
+
+    await store.rollback(report.proposal!.id);
+    expect((await kb.readConcept("/existing.md")).body.trim()).toBe("before");
+    await expect(kb.readConcept("/imported.md")).rejects.toThrow("Concept not found");
+  });
+
+  it("does not create a proposal for an identical snapshot", async () => {
+    await kb.writeConcept(
+      "/same.md",
+      { type: "Fact", title: "Same", description: "same" },
+      "same",
+      "seed",
+    );
+    const current = new Map([
+      ["/same.md", (await kb.readConcept("/same.md")).raw],
+    ]);
+    const report = await createSnapshotProposal(kb, "Import", "Import", current);
+    expect(report).toEqual({ ran: false, reason: "import matches the live bundle" });
+  });
+
+  it("builds merge imports from the snapshot taken inside the proposal lock", async () => {
+    await kb.writeConcept(
+      "/preserved.md",
+      { type: "Fact", title: "Preserved", description: "keep" },
+      "keep",
+      "seed",
+    );
+    const imported = new Map([
+      [
+        "/added.md",
+        "---\ntype: Fact\ntitle: Added\ndescription: imported\n---\nadded\n",
+      ],
+    ]);
+    const report = await createSnapshotProposal(
+      kb,
+      "Merge import",
+      "Merge one concept",
+      imported,
+      "merge",
+    );
+    expect(report.proposal?.edits.map((edit) => [edit.path, edit.action])).toEqual([
+      ["/added.md", "create"],
+    ]);
   });
 });

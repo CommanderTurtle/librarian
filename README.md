@@ -66,9 +66,12 @@ competing plans against the same baseline.
 
 The web UI's **Dreams** view auto-refreshes proposal history and scheduler state,
 shows the next and previous checks, highlights changed lines in every exact
-before/after diff, and confirms each apply/reject/rollback action. Only the
-human-only HTTP approval route can resolve a proposal; no model-facing MCP tool
-has approval authority. Approval first verifies both the stored proposal hashes
+before/after diff, and confirms each apply/reject/rollback action. Its guided
+add, update, and maintenance routes use the same isolated proposal path. A
+versioned `librarian.bundle.v1` JSON export can be merged or replace-staged as a
+deterministic proposal; import never writes before review. Only the human-only
+HTTP approval route can resolve a proposal; no model-facing MCP tool has
+approval authority. Approval first verifies both the stored proposal hashes
 and every live concept baseline. Applied proposals retain their preimages and
 can be rolled back from the same view, while a later concept change blocks
 rollback rather than overwriting newer knowledge. Interrupted multi-file apply
@@ -162,8 +165,8 @@ sessions, and configuration remain on the machine running the chosen harness.
 ## Optional web browser
 
 The MCP servers are stdio processes and require no persistent Librarian
-service. To browse the OKF tree, graph, traces, dream proposals, and chat through the selected
-backend:
+service. To browse the OKF tree, graph, traces, guided operations, portable JSON
+exports, dream proposals, and chat through the selected backend:
 
 ```bash
 ./start.sh
