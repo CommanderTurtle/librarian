@@ -144,9 +144,8 @@ const privateEnv = {
     : "LIBRARIAN_BUNDLE_ROOT",
   GIT_AUTOCOMMIT: envValues.GIT_AUTOCOMMIT,
 };
-const publicEnv = {
+const publicEnvBase = {
   BUNDLE_ROOT: bundleRoot,
-  LIBRARIAN_AGENT_BACKEND: backend,
   HERMES_PROFILE_HOME: profileHome,
   HERMES_PYTHON: hermesPython,
   HERMES_MODEL: envValues.HERMES_MODEL,
@@ -165,6 +164,18 @@ const publicEnv = {
   HOT_MEMORY: envValues.HOT_MEMORY,
   HOT_MEMORY_TTL: envValues.HOT_MEMORY_TTL,
   GIT_AUTOCOMMIT: envValues.GIT_AUTOCOMMIT,
+};
+// The long-running dream worker may use either backend, but a public MCP call
+// must execute through the harness that made the call. Keeping these
+// environments distinct prevents an OMP request from silently detouring
+// through Hermes (and vice versa) when the private worker backend changes.
+const publicHermesEnv = {
+  ...publicEnvBase,
+  LIBRARIAN_AGENT_BACKEND: "hermes",
+};
+const publicOmpEnv = {
+  ...publicEnvBase,
+  LIBRARIAN_AGENT_BACKEND: "omp",
 };
 
 if (backend === "hermes") {
@@ -201,7 +212,7 @@ if (backend === "hermes") {
 const publicHermesProfiles = hermes ? hermesPublicProfiles() : [];
 for (const profile of publicHermesProfiles) {
   console.log(`Registering public Librarian tools with Hermes profile '${profile.name}'...`);
-  replaceHermesMcp("librarian", bun, [librarianEntry], publicEnv, profile.directory);
+  replaceHermesMcp("librarian", bun, [librarianEntry], publicHermesEnv, profile.directory);
   installRoutingSkill(profile.directory, "hermes");
 }
 
@@ -209,7 +220,7 @@ const publicOmpAgents = omp ? ompPublicAgentDirectories() : [];
 for (const directory of publicOmpAgents) {
   const publicMcpPath = path.join(directory, "mcp.json");
   console.log(`Registering public Librarian tools in ${publicMcpPath}...`);
-  updateOmpMcp(publicMcpPath, "librarian", bun, [librarianEntry], publicEnv);
+  updateOmpMcp(publicMcpPath, "librarian", bun, [librarianEntry], publicOmpEnv);
   installRoutingSkill(directory, "omp");
 }
 for (const directory of ompIsolatedAgentDirectories()) {
@@ -449,12 +460,33 @@ function verifyIntegration(
     if (!names.includes("librarian") || names.includes("librarian-okf")) {
       fail(`Hermes public profile '${profile.name}' has an invalid Librarian boundary`);
     }
+    const callerBackend = hermesConfigValue(
+      profile.directory,
+      "mcp_servers.librarian.env.LIBRARIAN_AGENT_BACKEND"
+    );
+    if (callerBackend !== "hermes") {
+      fail(
+        `Hermes public profile '${profile.name}' routes Librarian through ` +
+          `'${callerBackend || "(unset)"}' instead of its native Hermes RPC path`
+      );
+    }
     verifyRoutingSkill(profile.directory, "hermes");
   }
   for (const directory of publicOmp) {
-    const names = Object.keys(readOmpMcp(path.join(directory, "mcp.json")).mcpServers || {});
+    const mcp = readOmpMcp(path.join(directory, "mcp.json"));
+    const names = Object.keys(mcp.mcpServers || {});
     if (!names.includes("librarian") || names.includes("librarian-okf")) {
       fail(`OMP public profile at ${directory} has an invalid Librarian boundary`);
+    }
+    const entry = mcp.mcpServers?.librarian;
+    const callerBackend = isRecord(entry) && isRecord(entry.env)
+      ? entry.env.LIBRARIAN_AGENT_BACKEND
+      : undefined;
+    if (callerBackend !== "omp") {
+      fail(
+        `OMP public profile at ${directory} routes Librarian through ` +
+          `'${String(callerBackend || "(unset)")}' instead of its native OMP RPC path`
+      );
     }
     verifyRoutingSkill(directory, "omp");
   }
@@ -477,6 +509,18 @@ function verifyIntegration(
     `Verified Librarian integration: ${publicHermes.length} Hermes public profiles, ` +
       `${publicOmp.length} OMP public profiles, one ${selectedBackend} private worker.`
   );
+}
+
+function hermesConfigValue(directory: string, key: string): string {
+  if (!hermes) return "";
+  const result = spawnSync(hermes, ["config", "get", key], {
+    env: { ...process.env, HERMES_HOME: directory },
+    encoding: "utf8",
+  });
+  if (result.status !== 0) {
+    fail(`Could not inspect Hermes setting '${key}' in ${directory}`);
+  }
+  return result.stdout.trim();
 }
 
 function verifyRoutingSkill(directory: string, harness: Backend): void {

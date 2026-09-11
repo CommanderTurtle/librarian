@@ -107,7 +107,9 @@ Setup asks for the delegated backend, OKF bundle, model, and provider, then
 builds the Bun workspace, writes resolved paths to `.env`, and reconciles both
 installed harnesses. The backend choice controls only the private delegated
 worker; the public five-tool Librarian MCP is available in every ordinary
-Hermes and OMP profile.
+Hermes and OMP profile. Public calls always use their caller's native RPC path:
+Hermes registrations launch Hermes and OMP registrations launch OMP, regardless
+of which backend runs the private dream worker.
 
 ### Hermes backend (default)
 
@@ -134,8 +136,9 @@ reuse after a harness update:
 ```
 
 `doctor.sh` verifies the built public/private MCP entrypoints, every ordinary
-Hermes and OMP registration, each exact routing skill, and the selected
-private-worker boundary. It does not launch an agent or contact a model.
+Hermes and OMP registration, each exact routing skill, each public
+registration's caller-native backend, and the selected private-worker boundary.
+It does not launch an agent or contact a model.
 
 ### OMP backend
 
