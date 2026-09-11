@@ -26,6 +26,7 @@
   "scripts": {
     "setup": "bun scripts/setup.ts",
     "integrate": "bun scripts/setup.ts --integrate-only",
+    "doctor": "bun scripts/setup.ts --check",
     "test": "bun run --filter '*' test",
     "build": "bun run --filter '*' build",
     "dev": "bun run --filter '*' dev",

@@ -10,10 +10,15 @@ bun_bin="$(command -v bun || true)"
   exit 1
 }
 
-git pull --rebase --autostash
+if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+  printf 'Librarian has tracked local changes; commit or stash them before updating.\n' >&2
+  exit 1
+fi
+
+git pull --ff-only
 "$bun_bin" install --frozen-lockfile
 "$bun_bin" run build
-"$bun_bin" run integrate
+"$repo_dir/integrate.sh"
 
 printf 'Librarian updated and its Hermes/OMP registrations were reconciled.\n'
 printf 'Restart its optional HTTP service if it is running.\n'

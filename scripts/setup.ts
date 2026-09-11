@@ -17,7 +17,8 @@ const repoRoot = path.resolve(import.meta.dir, "..");
 const defaultBundle = path.join(repoRoot, "data");
 const routingSkillSource = path.join(repoRoot, "skills", "librarian", "SKILL.md");
 const integrateOnly = process.argv.includes("--integrate-only");
-const interactive = stdin.isTTY && stdout.isTTY && !integrateOnly;
+const checkOnly = process.argv.includes("--check");
+const interactive = stdin.isTTY && stdout.isTTY && !integrateOnly && !checkOnly;
 const prompt = interactive ? readline.createInterface({ input: stdin, output: stdout }) : null;
 const bun = Bun.which("bun");
 
@@ -79,6 +80,20 @@ const provider = await choose(
 );
 prompt?.close();
 
+const distRoot = path.join(repoRoot, "packages", "server", "dist", "mcp");
+const okfEntry = path.join(distRoot, "okf-stdio.js");
+const librarianEntry = path.join(distRoot, "stdio.js");
+
+if (checkOnly) {
+  verifyIntegration(
+    backend,
+    hermes ? hermesPublicProfiles() : [],
+    omp ? ompPublicAgentDirectories() : [],
+  );
+  console.log("Librarian integration audit passed without changing configuration.");
+  process.exit(0);
+}
+
 mkdirSync(bundleRoot, { recursive: true });
 
 if (!integrateOnly) {
@@ -117,10 +132,6 @@ const envValues: Record<string, string> = {
   AUTH_TOKEN: process.env.AUTH_TOKEN || "",
 };
 writeEnv(path.join(repoRoot, ".env"), envValues);
-
-const distRoot = path.join(repoRoot, "packages", "server", "dist", "mcp");
-const okfEntry = path.join(distRoot, "okf-stdio.js");
-const librarianEntry = path.join(distRoot, "stdio.js");
 
 const privateEnv = {
   BUNDLE_ROOT: bundleRoot,

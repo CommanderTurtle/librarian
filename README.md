@@ -122,6 +122,18 @@ Rerunning setup refreshes both registrations without recreating the profile.
 Non-default installations can set `HERMES_HOME`, `HERMES_PROFILE_HOME`, and
 `HERMES_PYTHON`.
 
+The non-interactive integration and read-only audit entrypoints are safe to
+reuse after a harness update:
+
+```bash
+~/Hermes/librarian/integrate.sh
+~/Hermes/librarian/doctor.sh
+```
+
+`doctor.sh` verifies the built public/private MCP entrypoints, every ordinary
+Hermes and OMP registration, each exact routing skill, and the selected
+private-worker boundary. It does not launch an agent or contact a model.
+
 ### OMP backend
 
 Set `LIBRARIAN_AGENT_BACKEND=omp` before setup or select `omp` at the prompt.
