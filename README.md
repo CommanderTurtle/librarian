@@ -103,13 +103,13 @@ cd librarian
 bun run setup
 ```
 
-Setup asks for the delegated backend, OKF bundle, model, and provider, then
-builds the Bun workspace, writes resolved paths to `.env`, and reconciles both
-installed harnesses. The backend choice controls only the private delegated
-worker; the public five-tool Librarian MCP is available in every ordinary
-Hermes and OMP profile. Public calls always use their caller's native RPC path:
-Hermes registrations launch Hermes and OMP registrations launch OMP, regardless
-of which backend runs the private dream worker.
+Setup asks for the scheduled-dream backend, OKF bundle, model, and provider,
+then builds the Bun workspace, writes resolved paths to `.env`, and reconciles
+both installed harnesses. Each installed harness receives its own isolated
+worker; the backend choice controls only scheduled dreams. The public five-tool
+Librarian MCP is available in every ordinary Hermes and OMP profile. Public
+calls always use their caller's native RPC path: Hermes registrations launch
+Hermes and OMP registrations launch OMP.
 
 ### Hermes backend (default)
 
@@ -137,8 +137,8 @@ reuse after a harness update:
 
 `doctor.sh` verifies the built public/private MCP entrypoints, every ordinary
 Hermes and OMP registration, each exact routing skill, each public
-registration's caller-native backend, and the selected private-worker boundary.
-It does not launch an agent or contact a model.
+registration's caller-native backend, and both installed private-worker
+boundaries. It does not launch an agent or contact a model.
 
 ### OMP backend
 
@@ -190,7 +190,7 @@ to traces when the selected harness reports it.
 The update path rebases the Librarian repository with an autostash, performs a
 frozen Bun install, rebuilds every package, and runs the non-interactive
 `bun run integrate` path. It can be rerun after harness or profile updates; the
-same script repairs public registrations and the selected private boundary.
+same script repairs public registrations and both installed private boundaries.
 
 ## Development
 

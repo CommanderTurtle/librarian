@@ -56,13 +56,15 @@ const ompProfileAgentDir = expandHome(
 );
 const omp = resolveCommand(process.env.OMP_COMMAND || "omp");
 
-if (backend === "hermes") {
-  if (!hermes) fail("hermes is required for LIBRARIAN_AGENT_BACKEND=hermes.");
-  if (!existsSync(hermesPython)) fail(`Hermes Python was not found at ${hermesPython}`);
-} else if (!omp) {
+if (backend === "hermes" && !hermes) {
+  fail("hermes is required for LIBRARIAN_AGENT_BACKEND=hermes.");
+} else if (backend === "omp" && !omp) {
   fail("omp is required for LIBRARIAN_AGENT_BACKEND=omp.");
 }
-if (backend === "omp" && path.resolve(ompAgentDir) === path.resolve(ompProfileAgentDir)) {
+if (hermes && !existsSync(hermesPython)) {
+  fail(`Hermes Python was not found at ${hermesPython}`);
+}
+if (omp && path.resolve(ompAgentDir) === path.resolve(ompProfileAgentDir)) {
   fail("The public OMP agent directory and isolated Librarian profile directory must differ.");
 }
 
@@ -133,16 +135,21 @@ const envValues: Record<string, string> = {
 };
 writeEnv(path.join(repoRoot, ".env"), envValues);
 
-const privateEnv = {
+const privateEnvBase = {
   BUNDLE_ROOT: bundleRoot,
-  // Each fresh dream process may redirect only its own deterministic OKF MCP
-  // to an isolated copy. Hermes interpolates ${VAR}; OMP treats a config value
-  // matching an env-var name as an indirection. okf-stdio ignores either
-  // unresolved sentinel and falls back to the stable BUNDLE_ROOT above.
-  LIBRARIAN_BUNDLE_ROOT: backend === "hermes"
-    ? "${LIBRARIAN_BUNDLE_ROOT}"
-    : "LIBRARIAN_BUNDLE_ROOT",
   GIT_AUTOCOMMIT: envValues.GIT_AUTOCOMMIT,
+};
+// Each fresh delegated process may redirect only its own deterministic OKF MCP
+// to an isolated copy. Hermes interpolates ${VAR}; OMP treats a config value
+// matching an env-var name as an indirection. okf-stdio ignores either
+// unresolved sentinel and falls back to the stable BUNDLE_ROOT above.
+const privateHermesEnv = {
+  ...privateEnvBase,
+  LIBRARIAN_BUNDLE_ROOT: "${LIBRARIAN_BUNDLE_ROOT}",
+};
+const privateOmpEnv = {
+  ...privateEnvBase,
+  LIBRARIAN_BUNDLE_ROOT: "LIBRARIAN_BUNDLE_ROOT",
 };
 const publicEnvBase = {
   BUNDLE_ROOT: bundleRoot,
@@ -178,7 +185,7 @@ const publicOmpEnv = {
   LIBRARIAN_AGENT_BACKEND: "omp",
 };
 
-if (backend === "hermes") {
+if (hermes) {
   if (!profileExists(profileName)) {
     console.log(`\nCreating isolated Hermes profile '${profileName}' from the current profile...`);
     run(hermes!, [
@@ -194,19 +201,15 @@ if (backend === "hermes") {
   }
 
   console.log("\nRegistering private OKF operations with the Librarian Hermes profile...");
-  replaceHermesMcp("librarian-okf", bun, [okfEntry], privateEnv, profileHome);
+  replaceHermesMcp("librarian-okf", bun, [okfEntry], privateHermesEnv, profileHome);
   convergeHermesPrivateProfile(profileHome, "librarian-okf");
   removeManagedRoutingSkill(profileHome, "hermes");
-  removeOmpMcp(path.join(ompProfileAgentDir, "mcp.json"), ["librarian", "librarian-okf"]);
-  removeManagedRoutingSkill(ompProfileAgentDir, "omp");
-} else {
+}
+if (omp) {
   const privateMcpPath = path.join(ompProfileAgentDir, "mcp.json");
   console.log(`\nRegistering private OKF operations in OMP profile '${ompProfile}'...`);
-  updateOmpMcp(privateMcpPath, "librarian-okf", bun, [okfEntry], privateEnv, true);
+  updateOmpMcp(privateMcpPath, "librarian-okf", bun, [okfEntry], privateOmpEnv, true);
   removeManagedRoutingSkill(ompProfileAgentDir, "omp");
-  removeHermesMcp("librarian", profileHome);
-  removeHermesMcp("librarian-okf", profileHome);
-  removeManagedRoutingSkill(profileHome, "hermes");
 }
 
 const publicHermesProfiles = hermes ? hermesPublicProfiles() : [];
@@ -224,7 +227,7 @@ for (const directory of publicOmpAgents) {
   installRoutingSkill(directory, "omp");
 }
 for (const directory of ompIsolatedAgentDirectories()) {
-  if (backend === "omp" && path.resolve(directory) === path.resolve(ompProfileAgentDir)) continue;
+  if (path.resolve(directory) === path.resolve(ompProfileAgentDir)) continue;
   removeOmpMcp(path.join(directory, "mcp.json"), ["librarian", "librarian-okf"]);
   removeManagedRoutingSkill(directory, "omp");
 }
@@ -236,8 +239,9 @@ Librarian is ready.
 
   Repository:       ${repoRoot}
   Knowledge bundle:${bundleRoot}
-  Agent backend:    ${backend}
-  Private worker:  ${backend === "hermes" ? profileHome : ompProfileAgentDir}
+  Dream backend:    ${backend}
+  Hermes worker:   ${hermes ? profileHome : "(not installed)"}
+  OMP worker:      ${omp ? ompProfileAgentDir : "(not installed)"}
   Hermes publics:  ${publicHermesProfiles.length}
   OMP publics:     ${publicOmpAgents.length}
   Model:            ${model || "(profile default)"}
@@ -245,7 +249,8 @@ Librarian is ready.
 
 Every ordinary installed profile now exposes memory_query, memory_add,
 memory_update, memory_status, and memory_maintain. Each deep agentic call uses
-a fresh isolated ${backend === "hermes" ? "TUI-gateway JSON-RPC" : "OMP RPC"} session.
+a fresh isolated session through its caller's native RPC protocol. Scheduled
+dreams use the configured ${backend === "hermes" ? "TUI-gateway JSON-RPC" : "OMP RPC"} backend.
 `);
 
 async function choose(label: string, fallback: string): Promise<string> {
@@ -490,13 +495,14 @@ function verifyIntegration(
     }
     verifyRoutingSkill(directory, "omp");
   }
-  if (selectedBackend === "hermes") {
+  if (hermes) {
     const privateNames = hermesMcpNames(profileHome);
     if (privateNames.length !== 1 || privateNames[0] !== "librarian-okf") {
       fail("Hermes Librarian worker must expose only librarian-okf");
     }
     verifyNoRoutingSkill(profileHome, "hermes");
-  } else {
+  }
+  if (omp) {
     const privateNames = Object.keys(
       readOmpMcp(path.join(ompProfileAgentDir, "mcp.json")).mcpServers || {}
     ).sort();
@@ -507,7 +513,9 @@ function verifyIntegration(
   }
   console.log(
     `Verified Librarian integration: ${publicHermes.length} Hermes public profiles, ` +
-      `${publicOmp.length} OMP public profiles, one ${selectedBackend} private worker.`
+      `${publicOmp.length} OMP public profiles, ` +
+      `${hermes ? "Hermes" : "no Hermes"} and ${omp ? "OMP" : "no OMP"} private workers; ` +
+      `${selectedBackend} selected for scheduled dreams.`
   );
 }
 
